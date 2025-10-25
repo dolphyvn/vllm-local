@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local Financial Assistant</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Financial AI</span>
+                </div>
+                <button class="new-chat-btn" id="newChatBtn">
+                    <i class="fas fa-plus"></i>
+                    New Chat
+                </button>
+            </div>
+
+            <div class="sidebar-content">
+                <!-- System Status -->
+                <div class="status-card">
+                    <div class="status-header">
+                        <i class="fas fa-server"></i>
+                        <span>System Status</span>
+                    </div>
+                    <div class="status-content">
+                        <div class="status-item">
+                            <span class="status-label">Model:</span>
+                            <span class="status-value" id="modelStatus">Loading...</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Memory:</span>
+                            <span class="status-value" id="memoryStatus">Loading...</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">API:</span>
+                            <span class="status-value online" id="apiStatus">Online</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Memory Management -->
+                <div class="memory-section">
+                    <div class="section-header">
+                        <i class="fas fa-brain"></i>
+                        <span>Memory Management</span>
+                    </div>
+                    <div class="memory-form">
+                        <input type="text" id="memoryKey" placeholder="Key (e.g., trading_rule)">
+                        <textarea id="memoryValue" placeholder="Value (e.g., Never risk more than 2% per trade)"></textarea>
+                        <select id="memoryCategory">
+                            <option value="general">General</option>
+                            <option value="trading">Trading</option>
+                            <option value="strategy">Strategy</option>
+                            <option value="risk">Risk Management</option>
+                        </select>
+                        <button id="storeMemoryBtn" class="store-memory-btn">
+                            <i class="fas fa-save"></i>
+                            Store Memory
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Recent Memories -->
+                <div class="recent-memories">
+                    <div class="section-header">
+                        <i class="fas fa-history"></i>
+                        <span>Recent Memories</span>
+                        <button id="refreshMemoriesBtn" class="refresh-btn">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+                    <div class="memories-list" id="memoriesList">
+                        <div class="loading">Loading memories...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Chat Area -->
+        <div class="main-content">
+            <!-- Header -->
+            <header class="header">
+                <button class="menu-toggle" id="menuToggle">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <div class="header-info">
+                    <h1>Local Financial Assistant</h1>
+                    <p>Specialized in forex, gold, and macro analysis</p>
+                </div>
+                <div class="header-actions">
+                    <button class="theme-toggle" id="themeToggle">
+                        <i class="fas fa-moon"></i>
+                    </button>
+                    <button class="settings-btn" id="settingsBtn">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Chat Messages -->
+            <div class="chat-container" id="chatContainer">
+                <div class="welcome-message">
+                    <div class="welcome-icon">
+                        <i class="fas fa-chart-line"></i>
+                    </div>
+                    <h2>Welcome to your Financial Assistant</h2>
+                    <p>I can help you with market analysis, trading strategies, risk management, and more. Ask me anything about financial markets!</p>
+
+                    <div class="example-prompts">
+                        <div class="prompt-example" onclick="sendPrompt('Analyze the current gold market trends')">
+                            <i class="fas fa-search"></i>
+                            <span>Analyze the current gold market trends</span>
+                        </div>
+                        <div class="prompt-example" onclick="sendPrompt('What are the key risk management principles?')">
+                            <i class="fas fa-shield-alt"></i>
+                            <span>What are the key risk management principles?</span>
+                        </div>
+                        <div class="prompt-example" onclick="sendPrompt('Explain forex correlation analysis')">
+                            <i class="fas fa-link"></i>
+                            <span>Explain forex correlation analysis</span>
+                        </div>
+                        <div class="prompt-example" onclick="sendPrompt('Best technical indicators for day trading')">
+                            <i class="fas fa-chart-bar"></i>
+                            <span>Best technical indicators for day trading</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="input-container">
+                <div class="input-wrapper">
+                    <textarea
+                        id="messageInput"
+                        placeholder="Ask about market analysis, trading strategies, risk management..."
+                        rows="1"
+                        maxlength="4000"
+                    ></textarea>
+                    <button id="sendBtn" class="send-btn" disabled>
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+                <div class="input-info">
+                    <span class="char-count"><span id="charCount">0</span> / 4000</span>
+                    <span class="model-info">Powered by Phi-3 Mini</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div class="toast" id="toast">
+        <div class="toast-content">
+            <i class="fas fa-check-circle"></i>
+            <span id="toastMessage">Success!</span>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin"></i>
+            <span>Processing...</span>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

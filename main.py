@@ -7,10 +7,14 @@ import json
 import asyncio
 import requests
 from typing import Dict, Any, List, Optional
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import logging
 from datetime import datetime
+import os
 
 from memory import MemoryManager
 
@@ -24,6 +28,15 @@ app = FastAPI(
     description="AI-powered financial analysis and trading strategy assistant",
     version="1.0.0"
 )
+
+# Mount static files and templates
+if os.path.exists("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+
+if os.path.exists("templates"):
+    templates = Jinja2Templates(directory="templates")
+else:
+    templates = None
 
 # Initialize memory manager
 memory_manager = MemoryManager()
@@ -69,6 +82,12 @@ class HealthResponse(BaseModel):
 class MemorizeResponse(BaseModel):
     success: bool
     message: str
+    timestamp: str
+
+class MemoryEntryResponse(BaseModel):
+    key: str
+    value: str
+    category: str
     timestamp: str
 
 # vLLM API client
@@ -260,12 +279,104 @@ async def health_endpoint():
         logger.error(f"Health check error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/", response_class=HTMLResponse)
+async def ui_endpoint(request: Request):
+    """
+    Serve the main web UI
+
+    Returns:
+        HTML page with the web interface
+    """
+    if templates and os.path.exists("templates/index.html"):
+        return templates.TemplateResponse("index.html", {"request": request})
+    else:
+        # Fallback basic HTML if template not found
+        return HTMLResponse("""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Local Financial Assistant</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+                .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+                h1 { color: #333; text-align: center; }
+                .status { background: #e8f5e8; padding: 15px; border-radius: 5px; margin: 20px 0; }
+                .api-endpoints { background: #f8f9fa; padding: 15px; border-radius: 5px; }
+                .endpoint { margin: 5px 0; font-family: monospace; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🤖 Local Financial Assistant</h1>
+                <div class="status">
+                    ✅ API is running successfully!
+                </div>
+                <div class="api-endpoints">
+                    <h3>Available Endpoints:</h3>
+                    <div class="endpoint">POST /chat - Send chat messages</div>
+                    <div class="endpoint">POST /memorize - Store information in memory</div>
+                    <div class="endpoint">GET /health - Check system health</div>
+                    <div class="endpoint">GET /docs - Interactive API documentation</div>
+                </div>
+                <p style="text-align: center; margin-top: 30px; color: #666;">
+                    Web UI template not found. Please ensure the templates directory exists.
+                </p>
+            </div>
+        </body>
+        </html>
+        """)
+
+@app.get("/memories", response_model=List[MemoryEntryResponse])
+async def get_memories_endpoint(n: int = 10):
+    """
+    Get recent memories for the web UI
+
+    Args:
+        n: Number of memories to return
+
+    Returns:
+        List of recent memory entries
+    """
+    try:
+        memories = memory_manager.get_recent_memories(n)
+
+        formatted_memories = []
+        for memory in memories:
+            # Extract key-value from explicit memories
+            if "Store memory:" in memory["text"]:
+                parts = memory["text"].split("Store memory:", 1)[1].strip()
+                if ":" in parts:
+                    key, value = parts.split(":", 1)
+                    formatted_memories.append(MemoryEntryResponse(
+                        key=key.strip(),
+                        value=value.strip(),
+                        category=memory["metadata"].get("category", "general"),
+                        timestamp=memory["metadata"].get("timestamp", datetime.now().isoformat())
+                    ))
+
+        return formatted_memories
+
+    except Exception as e:
+        logger.error(f"Failed to get memories: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
     logger.info("Starting Local Financial Assistant API")
     logger.info(f"Configuration loaded: {config.get('default_model', 'phi3')} model")
     logger.info("Memory system initialized")
+
+    # Check if UI files are available
+    if os.path.exists("templates/index.html"):
+        logger.info("Web UI template found - web interface available at http://localhost:8080")
+    else:
+        logger.warning("Web UI template not found - only API endpoints available")
+
+    if os.path.exists("static"):
+        logger.info("Static files directory found")
+    else:
+        logger.warning("Static files directory not found")
 
 @app.on_event("shutdown")
 async def shutdown_event():
