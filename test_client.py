@@ -137,6 +137,48 @@ class FinancialAssistantClient:
         else:
             return {"error": response["error"]}
 
+    def chat_stream(self, message: str, model: str = "phi3"):
+        """
+        Streaming chat completion that yields tokens as they arrive
+
+        Args:
+            message: User message
+            model: Model name
+
+        Yields:
+            Token chunks as they arrive
+        """
+        url = f"{self.base_url}/chat/stream"
+        payload = {
+            "message": message,
+            "model": model,
+            "memory_context": 3
+        }
+
+        try:
+            response = self.session.post(url, json=payload, stream=True, timeout=120)
+            response.raise_for_status()
+
+            for line in response.iter_lines():
+                if line:
+                    line_str = line.decode('utf-8')
+                    if line_str.startswith('data: '):
+                        data = line_str[6:]  # Remove 'data: ' prefix
+                        if data == '[DONE]':
+                            break
+                        try:
+                            chunk = json.loads(data)
+                            if 'choices' in chunk and len(chunk['choices']) > 0:
+                                delta = chunk['choices'][0].get('delta', {})
+                                if 'content' in delta:
+                                    yield delta['content']
+                        except json.JSONDecodeError:
+                            continue
+
+        except requests.exceptions.RequestException as e:
+            print(f"Streaming request failed: {e}")
+            yield f"ERROR: Streaming failed - {str(e)}"
+
 def run_tests():
     """Run comprehensive tests of the financial assistant API"""
     client = FinancialAssistantClient()
@@ -233,6 +275,27 @@ def run_tests():
     else:
         print(f"❌ OpenAI compatibility test failed: {openai_response}")
 
+    # Test 6: Streaming Chat Test
+    print("\n6️⃣ Streaming Chat Test")
+    print("-" * 30)
+
+    streaming_message = "Explain the concept of technical analysis in trading"
+    print(f"Testing streaming with: {streaming_message}")
+    print("Response: ", end="", flush=True)
+
+    try:
+        response_parts = []
+        for token in client.chat_stream(streaming_message):
+            print(token, end="", flush=True)
+            response_parts.append(token)
+            time.sleep(0.01)  # Small delay to visualize streaming
+
+        print("\n✅ Streaming test completed successfully!")
+        print(f"   Total response length: {len(''.join(response_parts))} characters")
+
+    except Exception as e:
+        print(f"\n❌ Streaming test failed: {e}")
+
     print("\n" + "=" * 50)
     print("🎉 All tests completed!")
 
@@ -241,8 +304,10 @@ def interactive_mode():
     client = FinancialAssistantClient()
 
     print("\n🤖 Interactive Financial Assistant")
-    print("Type 'quit' to exit, 'memorize' to store memory, 'health' for health check")
+    print("Type 'quit' to exit, 'memorize' to store memory, 'health' for health check, 'stream' to toggle streaming")
     print("-" * 60)
+
+    streaming_mode = False
 
     while True:
         try:
@@ -266,16 +331,32 @@ def interactive_mode():
                 print(f"Memory: {json.dumps(result, indent=2)}")
                 continue
 
+            if user_input.lower() == 'stream':
+                streaming_mode = not streaming_mode
+                print(f"Streaming mode: {'ON' if streaming_mode else 'OFF'}")
+                continue
+
             if user_input:
                 print("Assistant: ", end="", flush=True)
-                response = client.chat(user_input)
 
-                if "error" not in response:
-                    print(response.get("response", "No response"))
-                    if response.get("memory_used"):
-                        print("📝 (Used memory context)")
+                if streaming_mode:
+                    # Use streaming
+                    try:
+                        for token in client.chat_stream(user_input):
+                            print(token, end="", flush=True)
+                        print()  # New line after completion
+                    except Exception as e:
+                        print(f"\nError: {e}")
                 else:
-                    print(f"Error: {response['error']}")
+                    # Use regular chat
+                    response = client.chat(user_input)
+
+                    if "error" not in response:
+                        print(response.get("response", "No response"))
+                        if response.get("memory_used"):
+                            print("📝 (Used memory context)")
+                    else:
+                        print(f"Error: {response['error']}")
 
         except KeyboardInterrupt:
             print("\nGoodbye! 👋")

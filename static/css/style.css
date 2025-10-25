@@ -766,3 +766,88 @@ body {
     border-radius: 6px;
     margin: 10px 0;
 }
+
+/* Streaming Styles */
+.message.streaming {
+    opacity: 0.9;
+    border-left: 3px solid var(--accent);
+}
+
+.streaming-cursor {
+    color: var(--accent);
+    font-weight: bold;
+    animation: pulse 1s infinite;
+    margin-left: 2px;
+}
+
+.message-text {
+    position: relative;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+}
+
+/* Stream completion animation */
+@keyframes streamComplete {
+    0% {
+        opacity: 0.8;
+    }
+    50% {
+        opacity: 1;
+        transform: translateY(-1px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.message.streaming.completed {
+    animation: streamComplete 0.5s ease;
+}
+
+/* Enhanced typing indicator */
+.typing-message .message-text {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* Error handling for streaming */
+.message.stream-error {
+    border-left-color: var(--error);
+    background-color: rgba(207, 34, 46, 0.05);
+}
+
+.stream-error .message-text {
+    color: var(--error);
+}
+
+/* Loading state for streaming */
+.message.stream-loading {
+    position: relative;
+}
+
+.message.stream-loading::after {
+    content: '';
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    width: 20px;
+    height: 2px;
+    background: var(--accent);
+    animation: streamProgress 2s ease-in-out infinite;
+}
+
+@keyframes streamProgress {
+    0% {
+        width: 0%;
+        opacity: 0.7;
+    }
+    50% {
+        width: 20px;
+        opacity: 1;
+    }
+    100% {
+        width: 0%;
+        opacity: 0.7;
+    }
+}

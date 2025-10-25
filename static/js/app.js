@@ -86,7 +86,89 @@ class FinancialAssistantApp {
         this.toggleSendButton();
         this.autoResizeTextarea();
 
-        // Show typing indicator
+        // Use streaming by default
+        await this.sendMessageStream(message);
+    }
+
+    async sendMessageStream(message) {
+        this.isTyping = true;
+
+        try {
+            // Create assistant message that will be updated with streaming content
+            const messageId = this.addStreamingMessage('assistant', '');
+
+            const response = await fetch(`${this.apiBaseUrl}/chat/stream`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    message: message,
+                    model: 'phi3',
+                    memory_context: 3
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let accumulatedContent = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+
+                if (done) break;
+
+                const chunk = decoder.decode(value);
+                const lines = chunk.split('\n');
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const data = line.slice(6);
+
+                        if (data === '[DONE]') {
+                            // Stream finished
+                            this.finalizeStreamingMessage(messageId, accumulatedContent);
+                            this.isTyping = false;
+                            return;
+                        }
+
+                        try {
+                            const parsed = JSON.parse(data);
+
+                            if (parsed.choices && parsed.choices[0]) {
+                                const delta = parsed.choices[0].delta;
+
+                                if (delta.content) {
+                                    accumulatedContent += delta.content;
+                                    this.updateStreamingMessage(messageId, accumulatedContent);
+                                }
+                            }
+                        } catch (e) {
+                            // Skip invalid JSON
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            this.finalizeStreamingMessage(messageId, accumulatedContent);
+            this.isTyping = false;
+
+        } catch (error) {
+            this.isTyping = false;
+            console.error('Streaming API error:', error);
+
+            // Fall back to non-streaming API
+            this.sendMessageFallback(message);
+        }
+    }
+
+    async sendMessageFallback(message) {
+        // Show typing indicator for fallback
         this.showTypingIndicator();
 
         try {
@@ -135,6 +217,124 @@ class FinancialAssistantApp {
             timestamp: new Date().toISOString(),
             metadata
         });
+    }
+
+    addStreamingMessage(role, initialContent = '') {
+        const chatContainer = document.getElementById('chatContainer');
+        const messageDiv = document.createElement('div');
+        const messageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+        messageDiv.className = `message ${role} streaming`;
+        messageDiv.id = messageId;
+
+        const avatar = this.createAvatar(role);
+        const messageContent = this.createStreamingMessageContent(role, initialContent);
+
+        messageDiv.appendChild(avatar);
+        messageDiv.appendChild(messageContent);
+
+        chatContainer.appendChild(messageDiv);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+
+        // Add to chat history
+        this.chatHistory.push({
+            id: messageId,
+            role,
+            content: initialContent,
+            timestamp: new Date().toISOString(),
+            streaming: true
+        });
+
+        return messageId;
+    }
+
+    updateStreamingMessage(messageId, content) {
+        const messageDiv = document.getElementById(messageId);
+        if (!messageDiv) return;
+
+        const textDiv = messageDiv.querySelector('.message-text');
+        if (textDiv) {
+            // Remove cursor if it exists
+            const cursor = textDiv.querySelector('.streaming-cursor');
+            if (cursor) {
+                textDiv.removeChild(cursor);
+            }
+
+            // Update content
+            textDiv.textContent = content;
+
+            // Re-add cursor
+            const newCursor = document.createElement('span');
+            newCursor.className = 'streaming-cursor';
+            newCursor.innerHTML = '|';
+            newCursor.style.animation = 'pulse 1s infinite';
+            textDiv.appendChild(newCursor);
+
+            // Update chat history
+            const historyItem = this.chatHistory.find(item => item.id === messageId);
+            if (historyItem) {
+                historyItem.content = content;
+            }
+
+            // Auto-scroll to keep latest content visible
+            const chatContainer = document.getElementById('chatContainer');
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+    }
+
+    finalizeStreamingMessage(messageId, content) {
+        const messageDiv = document.getElementById(messageId);
+        if (!messageDiv) return;
+
+        // Remove streaming class
+        messageDiv.classList.remove('streaming');
+
+        // Add final metadata
+        const messageContent = messageDiv.querySelector('.message-content');
+        const metaDiv = document.createElement('div');
+        metaDiv.className = 'message-meta';
+
+        const timestamp = document.createElement('span');
+        timestamp.textContent = new Date().toLocaleTimeString();
+
+        metaDiv.appendChild(timestamp);
+        messageContent.appendChild(metaDiv);
+
+        // Update chat history
+        const historyItem = this.chatHistory.find(item => item.id === messageId);
+        if (historyItem) {
+            historyItem.content = content;
+            historyItem.streaming = false;
+            historyItem.timestamp = new Date().toISOString();
+        }
+
+        // Show a subtle animation to indicate completion
+        messageDiv.style.animation = 'fadeIn 0.3s ease';
+    }
+
+    createStreamingMessageContent(role, content) {
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+
+        const roleDiv = document.createElement('div');
+        roleDiv.className = 'message-role';
+        roleDiv.textContent = role.charAt(0).toUpperCase() + role.slice(1);
+
+        const textDiv = document.createElement('div');
+        textDiv.className = 'message-text';
+        textDiv.textContent = content;
+
+        // Add cursor indicator for streaming
+        const cursor = document.createElement('span');
+        cursor.className = 'streaming-cursor';
+        cursor.innerHTML = '|';
+        cursor.style.animation = 'pulse 1s infinite';
+        textDiv.appendChild(cursor);
+
+        contentDiv.appendChild(roleDiv);
+        contentDiv.appendChild(textDiv);
+
+        return contentDiv;
     }
 
     createAvatar(role) {

@@ -10,11 +10,15 @@ from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import logging
 from datetime import datetime
 import os
+import uuid
+import queue
+import threading
 
 from memory import MemoryManager
 
@@ -58,6 +62,12 @@ config = load_config()
 
 # Pydantic models for request/response
 class ChatRequest(BaseModel):
+    message: str
+    model: str = config.get("default_model", "phi3")
+    memory_context: int = 3
+    stream: bool = False
+
+class StreamChatRequest(BaseModel):
     message: str
     model: str = config.get("default_model", "phi3")
     memory_context: int = 3
@@ -133,6 +143,60 @@ class VLLMClient:
         except (KeyError, IndexError) as e:
             logger.error(f"Invalid response format from vLLM: {e}")
             raise HTTPException(status_code=500, detail="Invalid response from model service")
+
+    async def chat_completion_stream(self, messages: List[Dict[str, str]], **kwargs):
+        """
+        Send streaming chat completion request to vLLM
+
+        Args:
+            messages: List of message dicts with 'role' and 'content'
+            **kwargs: Additional parameters for the completion
+
+        Yields:
+            Token chunks as they arrive
+        """
+        url = f"{self.base_url}/v1/chat/completions"
+
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": kwargs.get("temperature", 0.7),
+            "max_tokens": kwargs.get("max_tokens", 2048),
+            "stream": True
+        }
+
+        try:
+            response = requests.post(
+                url,
+                json=payload,
+                headers=self.headers,
+                timeout=60,
+                stream=True
+            )
+            response.raise_for_status()
+
+            for line in response.iter_lines():
+                if line:
+                    line_str = line.decode('utf-8')
+                    if line_str.startswith('data: '):
+                        data = line_str[6:]  # Remove 'data: ' prefix
+                        if data == '[DONE]':
+                            break
+                        try:
+                            chunk = json.loads(data)
+                            if 'choices' in chunk and len(chunk['choices']) > 0:
+                                delta = chunk['choices'][0].get('delta', {})
+                                if 'content' in delta:
+                                    yield delta['content']
+                        except json.JSONDecodeError:
+                            continue
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"vLLM streaming request failed: {e}")
+            yield f"ERROR: Streaming failed - {str(e)}"
+        except Exception as e:
+            logger.error(f"Streaming error: {e}")
+            yield f"ERROR: {str(e)}"
 
 # Initialize vLLM client
 vllm_client = VLLMClient(model=config.get("default_model", "phi3"))
@@ -222,6 +286,117 @@ async def chat_endpoint(request: ChatRequest):
     except Exception as e:
         logger.error(f"Chat endpoint error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/chat/stream")
+async def chat_stream_endpoint(request: StreamChatRequest):
+    """
+    Streaming chat endpoint that processes user messages and returns AI responses in real-time
+
+    Args:
+        request: StreamChatRequest containing message and parameters
+
+    Returns:
+        StreamingResponse with token-by-token AI response
+    """
+    logger.info(f"Received streaming chat request: {request.message[:100]}...")
+
+    async def generate_tokens():
+        """Generate and stream tokens from vLLM"""
+        accumulated_response = ""
+        message_id = str(uuid.uuid4())
+        start_time = datetime.now().isoformat()
+
+        try:
+            # Build contextual prompt with memory
+            messages = build_contextual_prompt(request.message, request.memory_context)
+
+            # Send initial chunk with metadata
+            initial_chunk = {
+                "id": message_id,
+                "object": "chat.completion.chunk",
+                "created": start_time,
+                "model": request.model,
+                "choices": [{
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": ""},
+                    "finish_reason": None
+                }]
+            }
+            yield f"data: {json.dumps(initial_chunk)}\n\n"
+
+            # Stream response from vLLM
+            async for token in vllm_client.chat_completion_stream(messages):
+                accumulated_response += token
+
+                chunk = {
+                    "id": message_id,
+                    "object": "chat.completion.chunk",
+                    "created": start_time,
+                    "model": request.model,
+                    "choices": [{
+                        "index": 0,
+                        "delta": {"content": token},
+                        "finish_reason": None
+                    }]
+                }
+                yield f"data: {json.dumps(chunk)}\n\n"
+
+            # Send final chunk
+            final_chunk = {
+                "id": message_id,
+                "object": "chat.completion.chunk",
+                "created": start_time,
+                "model": request.model,
+                "choices": [{
+                    "index": 0,
+                    "delta": {},
+                    "finish_reason": "stop"
+                }],
+                "usage": {
+                    "prompt_tokens": 0,  # vLLM doesn't provide token count
+                    "completion_tokens": 0,
+                    "total_tokens": 0
+                }
+            }
+            yield f"data: {json.dumps(final_chunk)}\n\n"
+            yield "data: [DONE]\n\n"
+
+            # Store complete conversation in memory
+            try:
+                memory_manager.add_memory(request.message, accumulated_response)
+                logger.info(f"Stored streaming conversation in memory")
+            except Exception as e:
+                logger.warning(f"Failed to store streaming conversation in memory: {e}")
+
+            logger.info(f"Generated streaming response of length: {len(accumulated_response)}")
+
+        except Exception as e:
+            logger.error(f"Streaming chat endpoint error: {e}")
+            error_chunk = {
+                "id": message_id,
+                "object": "chat.completion.chunk",
+                "created": start_time,
+                "model": request.model,
+                "choices": [{
+                    "index": 0,
+                    "delta": {"content": f"\n\nERROR: {str(e)}"},
+                    "finish_reason": "stop"
+                }],
+                "error": True
+            }
+            yield f"data: {json.dumps(error_chunk)}\n\n"
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        generate_tokens(),
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*"
+        }
+    )
 
 @app.post("/memorize", response_model=MemorizeResponse)
 async def memorize_endpoint(request: MemorizeRequest):
