@@ -1,6 +1,6 @@
 """
-memory.py - ChromaDB-based persistent semantic memory system
-Provides vector storage and retrieval for conversation history and user memories
+memory.py - Enhanced ChromaDB-based persistent semantic memory system
+Provides vector storage and retrieval for conversations, explicit memories, and lessons
 """
 
 from typing import List, Dict, Any, Optional
@@ -373,3 +373,141 @@ class MemoryManager:
         except Exception as e:
             logger.error(f"Failed to add explicit memory: {e}")
             raise
+
+    def add_lesson_memory(self, lesson_title: str, lesson_content: str,
+                        category: str = "trading", confidence: float = 0.7,
+                        tags: List[str] = None, source_conversation: str = None):
+        """
+        Add a lesson to semantic memory for vector-based retrieval
+
+        Args:
+            lesson_title: Title of the lesson
+            lesson_content: Detailed lesson content
+            category: Lesson category
+            confidence: Confidence level (0-1)
+            tags: List of tags for categorization
+            source_conversation: ID of conversation where lesson was learned
+        """
+        try:
+            self._ensure_initialized()
+            if not self._initialized or self.collection is None:
+                logger.warning("Memory not available, skipping add_lesson_memory")
+                return
+
+            # Create unique ID
+            timestamp = datetime.now().isoformat()
+            memory_id = f"lesson_{timestamp}_{hash(lesson_title) % 10000}"
+
+            # Prepare metadata
+            metadata = {
+                "timestamp": timestamp,
+                "type": "lesson",
+                "title": lesson_title,
+                "category": category,
+                "confidence": confidence,
+                "tags": tags or [],
+                "source_conversation": source_conversation,
+                "content_length": len(lesson_content)
+            }
+
+            # Add to ChromaDB for semantic search
+            self.collection.add(
+                documents=[f"Lesson: {lesson_title}. {lesson_content}"],
+                metadatas=[metadata],
+                ids=[memory_id]
+            )
+
+            logger.info(f"Added lesson to semantic memory: {lesson_title} (category: {category})")
+
+        except Exception as e:
+            logger.error(f"Failed to add lesson memory: {e}")
+            raise
+
+    def search_lessons(self, query: str, category: str = None, n: int = 5) -> List[Dict[str, Any]]:
+        """
+        Search for lessons using semantic similarity
+
+        Args:
+            query: Search query
+            category: Filter by category (optional)
+            n: Maximum number of results
+
+        Returns:
+            List of lesson documents with metadata
+        """
+        try:
+            self._ensure_initialized()
+            if not self._initialized or self.collection is None:
+                logger.warning("Memory not available, returning empty lesson list")
+                return []
+
+            # Build query parameters
+            query_params = {
+                "query_texts": [query],
+                "n_results": n
+            }
+
+            # Add category filter if specified
+            if category:
+                query_params["where"] = {"category": category}
+
+            # Query the collection
+            results = self.collection.query(**query_params)
+
+            # Extract and format results
+            lessons = []
+            if results['documents'] and results['documents'][0]:
+                for i, doc in enumerate(results['documents'][0]):
+                    metadata = results['metadatas'][0][i] if results['metadatas'] and results['metadatas'][0] else {}
+                    if metadata.get('type') == 'lesson':
+                        lessons.append({
+                            "document": doc,
+                            "metadata": metadata,
+                            "similarity_score": 1.0  # ChromaDB doesn't return scores by default
+                        })
+
+            logger.info(f"Found {len(lessons)} relevant lessons for query: {query[:50]}...")
+            return lessons
+
+        except Exception as e:
+            logger.error(f"Failed to search lessons: {e}")
+            return []
+
+    def get_combined_context(self, query: str, memory_context: int = 3,
+                           lesson_context: int = 2) -> Dict[str, List[str]]:
+        """
+        Get combined context from both conversation memory and lessons
+
+        Args:
+            query: The user's query
+            memory_context: Number of conversation memories to retrieve
+            lesson_context: Number of lessons to retrieve
+
+        Returns:
+            Dictionary with 'conversations' and 'lessons' keys
+        """
+        try:
+            self._ensure_initialized()
+            if not self._initialized or self.collection is None:
+                logger.warning("Memory not available for combined context")
+                return {"conversations": [], "lessons": []}
+
+            # Get conversation memories
+            conversation_memories = self.get_memory(query, n=memory_context)
+
+            # Get lesson memories
+            lesson_memories = self.search_lessons(query, n=lesson_context)
+
+            # Format lesson memories as text
+            lesson_texts = [lesson["document"] for lesson in lesson_memories]
+
+            logger.info(f"Retrieved combined context: {len(conversation_memories)} conversations, {len(lesson_texts)} lessons")
+
+            return {
+                "conversations": conversation_memories,
+                "lessons": lesson_texts
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get combined context: {e}")
+            return {"conversations": [], "lessons": []}

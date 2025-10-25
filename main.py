@@ -23,6 +23,7 @@ import queue
 import threading
 
 from memory import MemoryManager
+from lessons import LessonManager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -53,8 +54,9 @@ if os.path.exists("templates"):
 else:
     templates = None
 
-# Initialize memory manager
+# Initialize memory managers
 memory_manager = MemoryManager()
+lesson_manager = LessonManager()
 
 # Load configuration
 def load_config():
@@ -110,6 +112,49 @@ class MemoryEntryResponse(BaseModel):
     value: str
     category: str
     timestamp: str
+
+# Lesson-related Pydantic models
+class LessonRequest(BaseModel):
+    title: str
+    content: str
+    category: str
+    confidence: float = 0.7
+    tags: List[str] = []
+    source_conversation_id: Optional[str] = None
+
+class FeedbackRequest(BaseModel):
+    lesson_id: str
+    rating: int  # 1-5
+    feedback_text: str = ""
+    helpful: bool = True
+    user_context: Dict[str, Any] = {}
+
+class CorrectionRequest(BaseModel):
+    original_response: str
+    corrected_response: str
+    correction_reason: str
+    conversation_id: str
+
+class LessonResponse(BaseModel):
+    success: bool
+    lesson_id: str
+    message: str
+    timestamp: str
+
+class LessonsResponse(BaseModel):
+    lessons: List[Dict[str, Any]]
+    total_count: int
+    timestamp: str
+
+class LessonStatsResponse(BaseModel):
+    total_lessons: int
+    lessons_by_category: Dict[str, int]
+    average_feedback_rating: float
+    total_feedback_count: int
+    average_effectiveness: float
+    total_applications: int
+    application_outcomes: Dict[str, int]
+    most_effective_categories: List[Dict[str, Any]]
 
 # Ollama API client
 class OllamaClient:
@@ -270,13 +315,14 @@ ollama_client = OllamaClient(
     model=config.get("default_model", "llama3.2")
 )
 
-def build_contextual_prompt(user_message: str, memory_context: int = 3) -> List[Dict[str, str]]:
+def build_contextual_prompt(user_message: str, memory_context: int = 3, lesson_context: int = 2) -> List[Dict[str, str]]:
     """
     Build a prompt with system context, memory, and user message
 
     Args:
         user_message: The user's input message
         memory_context: Number of memory entries to include
+        lesson_context: Number of lessons to include
 
     Returns:
         List of message dictionaries for the model
@@ -296,17 +342,32 @@ def build_contextual_prompt(user_message: str, memory_context: int = 3) -> List[
     profile_context = f"<user_profile>\nRisk Profile: {user_profile['risk_profile']}\nDefault Pair: {user_profile['default_pair']}\nLanguage: {user_profile['language']}\n</user_profile>"
     messages.append({"role": "system", "content": profile_context})
 
-    # Retrieve relevant memory
+    # Retrieve relevant memory and lessons
     try:
-        memory_entries = memory_manager.get_memory(user_message, n=memory_context)
-        if memory_entries:
+        # Get combined context (conversations + lessons)
+        context_data = memory_manager.get_combined_context(user_message, memory_context, lesson_context)
+
+        # Add conversation memories
+        if context_data["conversations"]:
             memory_context_str = "<recent_context>\n"
-            for i, entry in enumerate(memory_entries, 1):
+            for i, entry in enumerate(context_data["conversations"], 1):
                 memory_context_str += f"Memory {i}: {entry}\n"
             memory_context_str += "</recent_context>"
             messages.append({"role": "system", "content": memory_context_str})
+
+        # Add lesson memories
+        if context_data["lessons"]:
+            lesson_context_str = "<learned_lessons>\n"
+            for i, lesson in enumerate(context_data["lessons"], 1):
+                lesson_context_str += f"Lesson {i}: {lesson}\n"
+            lesson_context_str += "</learned_lessons>\n"
+            lesson_context_str += "IMPORTANT: Apply these lessons to improve your analysis and reasoning. Use them to avoid past mistakes and incorporate successful strategies.\n"
+            messages.append({"role": "system", "content": lesson_context_str})
+
+        logger.info(f"Retrieved context: {len(context_data['conversations'])} memories, {len(context_data['lessons'])} lessons")
+
     except Exception as e:
-        logger.warning(f"Failed to retrieve memory: {e}")
+        logger.warning(f"Failed to retrieve context: {e}")
 
     # Add user message
     messages.append({"role": "user", "content": user_message})
@@ -664,6 +725,281 @@ async def startup_event():
         logger.info("Static files directory found")
     else:
         logger.warning("Static files directory not found")
+
+# ==================== LESSON MANAGEMENT ENDPOINTS ====================
+
+@app.post("/lessons", response_model=LessonResponse)
+async def add_lesson(request: LessonRequest):
+    """
+    Add a new lesson to the system
+    """
+    try:
+        logger.info(f"Adding new lesson: {request.title}")
+
+        # Add to structured database
+        lesson_id = lesson_manager.add_lesson(
+            title=request.title,
+            content=request.content,
+            category=request.category,
+            confidence=request.confidence,
+            source_conversation_id=request.source_conversation_id,
+            tags=request.tags
+        )
+
+        # Add to semantic memory for retrieval
+        memory_manager.add_lesson_memory(
+            lesson_title=request.title,
+            lesson_content=request.content,
+            category=request.category,
+            confidence=request.confidence,
+            tags=request.tags,
+            source_conversation=request.source_conversation_id
+        )
+
+        return LessonResponse(
+            success=True,
+            lesson_id=lesson_id,
+            message=f"Lesson '{request.title}' added successfully",
+            timestamp=datetime.now(timezone.utc).isoformat()
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to add lesson: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to add lesson: {str(e)}")
+
+@app.get("/lessons", response_model=LessonsResponse)
+async def get_lessons(query: str = "", category: str = "", limit: int = 10):
+    """
+    Retrieve lessons based on query and optional category
+    """
+    try:
+        logger.info(f"Retrieving lessons - Query: {query[:50]}, Category: {category}")
+
+        # Get lessons from structured database
+        db_lessons = lesson_manager.get_relevant_lessons(
+            query_text=query,
+            category=category if category else None,
+            max_lessons=limit
+        )
+
+        # Get lessons from semantic memory
+        semantic_lessons = memory_manager.search_lessons(
+            query=query,
+            category=category if category else None,
+            n=limit
+        )
+
+        # Combine and deduplicate lessons
+        all_lessons = []
+        seen_lesson_ids = set()
+
+        # Add database lessons
+        for lesson in db_lessons:
+            if lesson['id'] not in seen_lesson_ids:
+                all_lessons.append(lesson)
+                seen_lesson_ids.add(lesson['id'])
+
+        # Add semantic lessons (converted from memory format)
+        for lesson in semantic_lessons:
+            metadata = lesson.get('metadata', {})
+            lesson_id = f"semantic_{metadata.get('title', '')}_{metadata.get('timestamp', '')}"
+            if lesson_id not in seen_lesson_ids:
+                all_lessons.append({
+                    'id': lesson_id,
+                    'title': metadata.get('title', 'Unknown'),
+                    'content': lesson['document'],
+                    'category': metadata.get('category', 'general'),
+                    'confidence': metadata.get('confidence', 0.5),
+                    'created_at': metadata.get('timestamp', ''),
+                    'source': 'semantic_memory'
+                })
+                seen_lesson_ids.add(lesson_id)
+
+        return LessonsResponse(
+            lessons=all_lessons[:limit],
+            total_count=len(all_lessons),
+            timestamp=datetime.now(timezone.utc).isoformat()
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to retrieve lessons: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve lessons: {str(e)}")
+
+@app.post("/lessons/{lesson_id}/feedback", response_model=dict)
+async def add_lesson_feedback(lesson_id: str, request: FeedbackRequest):
+    """
+    Add feedback for a lesson
+    """
+    try:
+        logger.info(f"Adding feedback for lesson {lesson_id}: {request.rating}/5")
+
+        feedback_id = lesson_manager.add_feedback(
+            lesson_id=lesson_id,
+            rating=request.rating,
+            feedback_text=request.feedback_text,
+            helpful=request.helpful,
+            user_context=request.user_context
+        )
+
+        return {
+            "success": True,
+            "feedback_id": feedback_id,
+            "message": "Feedback added successfully",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to add feedback: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to add feedback: {str(e)}")
+
+@app.post("/corrections", response_model=dict)
+async def add_correction(request: CorrectionRequest):
+    """
+    Add a correction with derived lesson
+    """
+    try:
+        logger.info(f"Adding correction: {request.correction_reason[:50]}...")
+
+        # Add correction to database
+        correction_id = lesson_manager.add_correction(
+            original_response=request.original_response,
+            corrected_response=request.corrected_response,
+            correction_reason=request.correction_reason,
+            lesson_derived=request.correction_reason,  # Use reason as lesson for now
+            conversation_id=request.conversation_id
+        )
+
+        # Extract and add as a lesson
+        lesson_id = lesson_manager.add_lesson(
+            title=f"Correction: {request.correction_reason[:50]}...",
+            content=f"Original: {request.original_response}\n\nCorrected: {request.corrected_response}\n\nLesson: {request.correction_reason}",
+            category="correction",
+            confidence=0.8,  # High confidence as this is user-validated
+            source_conversation_id=request.conversation_id,
+            tags=["correction", "user-feedback", "improvement"]
+        )
+
+        # Add to semantic memory
+        memory_manager.add_lesson_memory(
+            lesson_title=f"Correction: {request.correction_reason[:50]}...",
+            lesson_content=f"Lesson learned: {request.correction_reason}. Corrected response: {request.corrected_response}",
+            category="correction",
+            confidence=0.8,
+            tags=["correction", "user-feedback", "improvement"],
+            source_conversation=request.conversation_id
+        )
+
+        return {
+            "success": True,
+            "correction_id": correction_id,
+            "lesson_id": lesson_id,
+            "message": "Correction and derived lesson added successfully",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to add correction: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to add correction: {str(e)}")
+
+@app.get("/lessons/stats", response_model=LessonStatsResponse)
+async def get_lesson_statistics():
+    """
+    Get comprehensive lesson statistics
+    """
+    try:
+        stats = lesson_manager.get_lesson_statistics()
+        return LessonStatsResponse(**stats)
+
+    except Exception as e:
+        logger.error(f"Failed to get lesson statistics: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get statistics: {str(e)}")
+
+@app.post("/lessons/{lesson_id}/apply", response_model=dict)
+async def record_lesson_application(lesson_id: str, conversation_id: str,
+                                   application_context: str, outcome: str,
+                                   effectiveness_rating: int = None):
+    """
+    Record when a lesson is applied and its effectiveness
+    """
+    try:
+        logger.info(f"Recording lesson application: {lesson_id} -> {outcome}")
+
+        application_id = lesson_manager.record_lesson_application(
+            lesson_id=lesson_id,
+            conversation_id=conversation_id,
+            application_context=application_context,
+            outcome=outcome,
+            effectiveness_rating=effectiveness_rating
+        )
+
+        return {
+            "success": True,
+            "application_id": application_id,
+            "message": f"Lesson application recorded with outcome: {outcome}",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to record lesson application: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to record application: {str(e)}")
+
+# ==================== HEALTH CHECK WITH LESSONS ====================
+
+@app.get("/health", response_model=dict)
+async def health_check():
+    """
+    Comprehensive health check including lessons system
+    """
+    try:
+        ollama_status = "ok"
+        model_available = True
+
+        # Check Ollama
+        try:
+            response = requests.get(f"{config.get('api_settings', {}).get('ollama_base_url', 'http://localhost:11434')}/api/tags", timeout=5)
+            if response.status_code == 200:
+                models = response.json().get('models', [])
+                if not models:
+                    ollama_status = "no_models"
+                    model_available = False
+            else:
+                ollama_status = "error"
+                model_available = False
+        except:
+            ollama_status = "offline"
+            model_available = False
+
+        # Check memory systems
+        memory_healthy = memory_manager.is_healthy()
+        lessons_healthy = lesson_manager.is_healthy()
+
+        # Get lesson stats if healthy
+        lesson_stats = {}
+        if lessons_healthy:
+            lesson_stats = lesson_manager.get_lesson_statistics()
+
+        return {
+            "status": "healthy",
+            "model": config.get("default_model", "phi3:latest"),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "memory_status": "ok" if memory_healthy else "error",
+            "lessons_status": "ok" if lessons_healthy else "error",
+            "lesson_stats": lesson_stats,
+            "services": {
+                "ollama": ollama_status,
+                "model_available": model_available,
+                "chroma": "ok" if memory_healthy else "error",
+                "sqlite": "ok" if lessons_healthy else "error"
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
 
 @app.on_event("shutdown")
 async def shutdown_event():
