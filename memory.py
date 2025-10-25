@@ -3,8 +3,6 @@ memory.py - ChromaDB-based persistent semantic memory system
 Provides vector storage and retrieval for conversation history and user memories
 """
 
-import chromadb
-from chromadb.config import Settings
 from typing import List, Dict, Any, Optional
 import logging
 from datetime import datetime
@@ -20,7 +18,7 @@ class MemoryManager:
 
     def __init__(self, collection_name: str = "financial_memory", persist_directory: str = "./chroma_db"):
         """
-        Initialize ChromaDB memory manager
+        Initialize ChromaDB memory manager (lazy initialization)
 
         Args:
             collection_name: Name of the ChromaDB collection
@@ -28,22 +26,36 @@ class MemoryManager:
         """
         self.collection_name = collection_name
         self.persist_directory = persist_directory
+        self.client = None
+        self.collection = None
+        self._initialized = False
+
+    def _ensure_initialized(self):
+        """Lazy initialization of ChromaDB"""
+        if self._initialized:
+            return
 
         try:
+            # Import ChromaDB only when needed
+            import chromadb
+            from chromadb.config import Settings
+
             # Initialize ChromaDB client with persistence
-            self.client = chromadb.PersistentClient(path=persist_directory)
+            self.client = chromadb.PersistentClient(path=self.persist_directory)
 
             # Get or create collection
             self.collection = self.client.get_or_create_collection(
-                name=collection_name,
+                name=self.collection_name,
                 metadata={"description": "Financial assistant memory storage"}
             )
 
-            logger.info(f"ChromaDB initialized with collection '{collection_name}' in '{persist_directory}'")
+            self._initialized = True
+            logger.info(f"ChromaDB initialized with collection '{self.collection_name}' in '{self.persist_directory}'")
 
         except Exception as e:
             logger.error(f"Failed to initialize ChromaDB: {e}")
-            raise
+            # Continue without memory if ChromaDB fails
+            self._initialized = False
 
     def add_memory(self, user_input: str, model_reply: str, metadata: Optional[Dict[str, Any]] = None):
         """
@@ -55,6 +67,10 @@ class MemoryManager:
             metadata: Additional metadata to store
         """
         try:
+            self._ensure_initialized()
+            if not self._initialized:
+                logger.warning("Memory not available, skipping add_memory")
+                return
             # Create unique ID
             timestamp = datetime.now().isoformat()
             memory_id = f"conv_{timestamp}_{hash(user_input) % 10000}"
@@ -307,3 +323,44 @@ class MemoryManager:
         except Exception as e:
             logger.error(f"Failed to search conversations: {e}")
             return []
+
+    def add_explicit_memory(self, key: str, value: str, category: str = "general"):
+        """
+        Add an explicit memory entry (key-value pair)
+
+        Args:
+            key: Memory key/identifier
+            value: Memory content
+            category: Category for organization (e.g., 'trading', 'strategy', 'risk')
+        """
+        try:
+            self._ensure_initialized()
+            if not self._initialized:
+                logger.warning("Memory not available, skipping add_explicit_memory")
+                return
+
+            # Create unique ID
+            timestamp = datetime.now().isoformat()
+            memory_id = f"explicit_{timestamp}_{hash(key) % 10000}"
+
+            # Prepare metadata
+            metadata = {
+                "timestamp": timestamp,
+                "type": "explicit",
+                "key": key,
+                "category": category,
+                "value_length": len(value)
+            }
+
+            # Add to collection
+            self.collection.add(
+                documents=[f"{key}: {value}"],
+                metadatas=[metadata],
+                ids=[memory_id]
+            )
+
+            logger.info(f"Added explicit memory: {key} (category: {category})")
+
+        except Exception as e:
+            logger.error(f"Failed to add explicit memory: {e}")
+            raise
