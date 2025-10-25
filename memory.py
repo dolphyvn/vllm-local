@@ -68,7 +68,7 @@ class MemoryManager:
         """
         try:
             self._ensure_initialized()
-            if not self._initialized:
+            if not self._initialized or self.collection is None:
                 logger.warning("Memory not available, skipping add_memory")
                 return
             # Create unique ID
@@ -115,6 +115,11 @@ class MemoryManager:
             List of relevant memory text entries
         """
         try:
+            self._ensure_initialized()
+            if not self._initialized or self.collection is None:
+                logger.warning("Memory not available, returning empty list")
+                return []
+
             # Build query parameters
             query_params = {
                 "query_texts": [query],
@@ -264,6 +269,10 @@ class MemoryManager:
             True if healthy, False otherwise
         """
         try:
+            self._ensure_initialized()
+            if not self._initialized or self.collection is None:
+                return False
+
             # Try a simple query to check connectivity
             self.collection.query(query_texts=["health_check"], n_results=1)
             return True
@@ -335,7 +344,7 @@ class MemoryManager:
         """
         try:
             self._ensure_initialized()
-            if not self._initialized:
+            if not self._initialized or self.collection is None:
                 logger.warning("Memory not available, skipping add_explicit_memory")
                 return
 
