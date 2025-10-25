@@ -6,6 +6,7 @@ Provides chat, memory management, and health endpoints for vLLM integration
 import json
 import asyncio
 import requests
+import aiohttp
 from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.staticfiles import StaticFiles
@@ -152,13 +153,13 @@ class OllamaClient:
         }
 
         try:
-            response = requests.post(url, json=payload, headers=self.headers, timeout=120)
-            response.raise_for_status()
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=self.headers, timeout=120) as response:
+                    response.raise_for_status()
+                    result = await response.json()
+                    return result.get("message", {}).get("content", "")
 
-            result = response.json()
-            return result.get("message", {}).get("content", "")
-
-        except requests.exceptions.RequestException as e:
+        except aiohttp.ClientError as e:
             logger.error(f"Ollama API request failed: {e}")
             raise HTTPException(status_code=503, detail=f"Ollama service unavailable: {e}")
         except (KeyError, IndexError) as e:
@@ -198,29 +199,26 @@ class OllamaClient:
         }
 
         try:
-            response = requests.post(
-                url,
-                json=payload,
-                headers=self.headers,
-                timeout=120,
-                stream=True
-            )
-            response.raise_for_status()
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=self.headers, timeout=120) as response:
+                    response.raise_for_status()
 
-            for line in response.iter_lines():
-                if line:
-                    try:
-                        chunk = json.loads(line.decode('utf-8'))
-                        if chunk.get("done"):
-                            break
-                        if "message" in chunk and "content" in chunk["message"]:
-                            content = chunk["message"]["content"]
-                            if content:
-                                yield content
-                    except json.JSONDecodeError:
-                        continue
+                    async for line in response.content:
+                        if line:
+                            try:
+                                line_str = line.decode('utf-8').strip()
+                                if line_str:
+                                    chunk = json.loads(line_str)
+                                    if chunk.get("done"):
+                                        break
+                                    if "message" in chunk and "content" in chunk["message"]:
+                                        content = chunk["message"]["content"]
+                                        if content:
+                                            yield content
+                            except json.JSONDecodeError:
+                                continue
 
-        except requests.exceptions.RequestException as e:
+        except aiohttp.ClientError as e:
             logger.error(f"Ollama streaming request failed: {e}")
             yield f"ERROR: Streaming failed - {str(e)}"
         except Exception as e:
