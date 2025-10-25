@@ -100,18 +100,18 @@ class MemoryEntryResponse(BaseModel):
     category: str
     timestamp: str
 
-# vLLM API client
-class VLLMClient:
-    """Client for interacting with vLLM OpenAI-compatible API"""
+# Ollama API client
+class OllamaClient:
+    """Client for interacting with Ollama API"""
 
-    def __init__(self, base_url: str = "http://localhost:8000", model: str = "phi3"):
+    def __init__(self, base_url: str = "http://localhost:11434", model: str = "llama3.2"):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.headers = {"Content-Type": "application/json"}
 
     async def chat_completion(self, messages: List[Dict[str, str]], **kwargs) -> str:
         """
-        Send chat completion request to vLLM
+        Send chat completion request to Ollama
 
         Args:
             messages: List of message dicts with 'role' and 'content'
@@ -120,33 +120,44 @@ class VLLMClient:
         Returns:
             Generated text response
         """
-        url = f"{self.base_url}/v1/chat/completions"
+        url = f"{self.base_url}/api/chat"
+
+        # Convert messages to Ollama format
+        ollama_messages = []
+        for msg in messages:
+            role = "user" if msg["role"] == "user" else "assistant"
+            ollama_messages.append({
+                "role": role,
+                "content": msg["content"]
+            })
 
         payload = {
             "model": self.model,
-            "messages": messages,
-            "temperature": kwargs.get("temperature", 0.7),
-            "max_tokens": kwargs.get("max_tokens", 2048),
-            "stream": False
+            "messages": ollama_messages,
+            "stream": False,
+            "options": {
+                "temperature": kwargs.get("temperature", 0.7),
+                "num_predict": kwargs.get("max_tokens", 2048)
+            }
         }
 
         try:
-            response = requests.post(url, json=payload, headers=self.headers, timeout=60)
+            response = requests.post(url, json=payload, headers=self.headers, timeout=120)
             response.raise_for_status()
 
             result = response.json()
-            return result["choices"][0]["message"]["content"]
+            return result.get("message", {}).get("content", "")
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"vLLM API request failed: {e}")
-            raise HTTPException(status_code=503, detail=f"vLLM service unavailable: {e}")
+            logger.error(f"Ollama API request failed: {e}")
+            raise HTTPException(status_code=503, detail=f"Ollama service unavailable: {e}")
         except (KeyError, IndexError) as e:
-            logger.error(f"Invalid response format from vLLM: {e}")
+            logger.error(f"Invalid response format from Ollama: {e}")
             raise HTTPException(status_code=500, detail="Invalid response from model service")
 
     async def chat_completion_stream(self, messages: List[Dict[str, str]], **kwargs):
         """
-        Send streaming chat completion request to vLLM
+        Send streaming chat completion request to Ollama
 
         Args:
             messages: List of message dicts with 'role' and 'content'
@@ -155,14 +166,25 @@ class VLLMClient:
         Yields:
             Token chunks as they arrive
         """
-        url = f"{self.base_url}/v1/chat/completions"
+        url = f"{self.base_url}/api/chat"
+
+        # Convert messages to Ollama format
+        ollama_messages = []
+        for msg in messages:
+            role = "user" if msg["role"] == "user" else "assistant"
+            ollama_messages.append({
+                "role": role,
+                "content": msg["content"]
+            })
 
         payload = {
             "model": self.model,
-            "messages": messages,
-            "temperature": kwargs.get("temperature", 0.7),
-            "max_tokens": kwargs.get("max_tokens", 2048),
-            "stream": True
+            "messages": ollama_messages,
+            "stream": True,
+            "options": {
+                "temperature": kwargs.get("temperature", 0.7),
+                "num_predict": kwargs.get("max_tokens", 2048)
+            }
         }
 
         try:
@@ -170,36 +192,75 @@ class VLLMClient:
                 url,
                 json=payload,
                 headers=self.headers,
-                timeout=60,
+                timeout=120,
                 stream=True
             )
             response.raise_for_status()
 
             for line in response.iter_lines():
                 if line:
-                    line_str = line.decode('utf-8')
-                    if line_str.startswith('data: '):
-                        data = line_str[6:]  # Remove 'data: ' prefix
-                        if data == '[DONE]':
+                    try:
+                        chunk = json.loads(line.decode('utf-8'))
+                        if chunk.get("done"):
                             break
-                        try:
-                            chunk = json.loads(data)
-                            if 'choices' in chunk and len(chunk['choices']) > 0:
-                                delta = chunk['choices'][0].get('delta', {})
-                                if 'content' in delta:
-                                    yield delta['content']
-                        except json.JSONDecodeError:
-                            continue
+                        if "message" in chunk and "content" in chunk["message"]:
+                            content = chunk["message"]["content"]
+                            if content:
+                                yield content
+                    except json.JSONDecodeError:
+                        continue
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"vLLM streaming request failed: {e}")
+            logger.error(f"Ollama streaming request failed: {e}")
             yield f"ERROR: Streaming failed - {str(e)}"
         except Exception as e:
             logger.error(f"Streaming error: {e}")
             yield f"ERROR: {str(e)}"
 
-# Initialize vLLM client
-vllm_client = VLLMClient(model=config.get("default_model", "phi3"))
+    def check_model(self) -> bool:
+        """
+        Check if the specified model is available in Ollama
+
+        Returns:
+            True if model is available, False otherwise
+        """
+        try:
+            url = f"{self.base_url}/api/tags"
+            response = requests.get(url, headers=self.headers, timeout=10)
+            response.raise_for_status()
+
+            models = response.json().get("models", [])
+            model_names = [model.get("name", "").split(":")[0] for model in models]
+            return self.model.split(":")[0] in model_names
+
+        except Exception as e:
+            logger.error(f"Failed to check Ollama models: {e}")
+            return False
+
+    def list_models(self) -> List[str]:
+        """
+        List available models in Ollama
+
+        Returns:
+            List of available model names
+        """
+        try:
+            url = f"{self.base_url}/api/tags"
+            response = requests.get(url, headers=self.headers, timeout=10)
+            response.raise_for_status()
+
+            models = response.json().get("models", [])
+            return [model.get("name", "") for model in models]
+
+        except Exception as e:
+            logger.error(f"Failed to list Ollama models: {e}")
+            return []
+
+# Initialize Ollama client
+ollama_client = OllamaClient(
+    base_url=config.get("api_settings", {}).get("ollama_base_url", "http://localhost:11434"),
+    model=config.get("default_model", "llama3.2")
+)
 
 def build_contextual_prompt(user_message: str, memory_context: int = 3) -> List[Dict[str, str]]:
     """
@@ -261,8 +322,8 @@ async def chat_endpoint(request: ChatRequest):
         # Build contextual prompt with memory
         messages = build_contextual_prompt(request.message, request.memory_context)
 
-        # Get response from vLLM
-        ai_response = await vllm_client.chat_completion(messages)
+        # Get response from Ollama
+        ai_response = await ollama_client.chat_completion(messages)
 
         # Store conversation in memory
         try:
@@ -324,8 +385,8 @@ async def chat_stream_endpoint(request: StreamChatRequest):
             }
             yield f"data: {json.dumps(initial_chunk)}\n\n"
 
-            # Stream response from vLLM
-            async for token in vllm_client.chat_completion_stream(messages):
+            # Stream response from Ollama
+            async for token in ollama_client.chat_completion_stream(messages):
                 accumulated_response += token
 
                 chunk = {
@@ -444,14 +505,41 @@ async def health_endpoint():
         # Check memory system
         memory_status = "ok" if memory_manager.is_healthy() else "error"
 
+        # Check Ollama model availability
+        model_available = ollama_client.check_model()
+        model_status = config.get("default_model", "llama3.2") if model_available else "Model not found"
+
         return HealthResponse(
             status="ok",
-            model=config.get("default_model", "phi3"),
+            model=model_status,
             timestamp=datetime.now().isoformat(),
             memory_status=memory_status
         )
     except Exception as e:
         logger.error(f"Health check error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/models", response_model=Dict[str, Any])
+async def list_models_endpoint():
+    """
+    List available Ollama models
+
+    Returns:
+        Dictionary with available models and current model
+    """
+    try:
+        available_models = ollama_client.list_models()
+        current_model = config.get("default_model", "llama3.2")
+        model_available = ollama_client.check_model()
+
+        return {
+            "current_model": current_model,
+            "model_available": model_available,
+            "available_models": available_models,
+            "total_models": len(available_models)
+        }
+    except Exception as e:
+        logger.error(f"Failed to list models: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/", response_class=HTMLResponse)
@@ -539,8 +627,24 @@ async def get_memories_endpoint(n: int = 10):
 async def startup_event():
     """Initialize services on startup"""
     logger.info("Starting Local Financial Assistant API")
-    logger.info(f"Configuration loaded: {config.get('default_model', 'phi3')} model")
+    logger.info(f"Configuration loaded: {config.get('default_model', 'llama3.2')} model")
     logger.info("Memory system initialized")
+
+    # Check Ollama availability
+    try:
+        model_available = ollama_client.check_model()
+        if model_available:
+            logger.info(f"✅ Ollama model '{config.get('default_model', 'llama3.2')}' is available")
+        else:
+            available_models = ollama_client.list_models()
+            if available_models:
+                logger.warning(f"⚠️  Model '{config.get('default_model', 'llama3.2')}' not found. Available models: {', '.join(available_models)}")
+                logger.info("Please update config.json with an available model or pull the required model using 'ollama pull <model_name>'")
+            else:
+                logger.error("❌ No Ollama models found. Please install Ollama and pull a model using 'ollama pull <model_name>'")
+    except Exception as e:
+        logger.error(f"❌ Failed to connect to Ollama: {e}")
+        logger.info("Please ensure Ollama is running on http://localhost:11434")
 
     # Check if UI files are available
     if os.path.exists("templates/index.html"):

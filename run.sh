@@ -13,10 +13,9 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-VLLM_PORT=8000
+OLLAMA_PORT=11434
 FASTAPI_PORT=8080
-MODEL_PATH="/models/phi3"  # Adjust this path to where your model is stored
-DEFAULT_MODEL="microsoft/phi-3-mini-128k-instruct"
+DEFAULT_MODEL="llama3.2"
 
 # Function to print colored output
 print_status() {
@@ -45,6 +44,24 @@ check_port() {
     fi
 }
 
+# Function to check if Ollama is installed
+check_ollama() {
+    if command -v ollama >/dev/null 2>&1; then
+        return 0  # Ollama is installed
+    else
+        return 1  # Ollama is not installed
+    fi
+}
+
+# Function to check if Ollama service is running
+check_ollama_service() {
+    if check_port $OLLAMA_PORT; then
+        return 0  # Ollama is running
+    else
+        return 1  # Ollama is not running
+    fi
+}
+
 # Function to wait for service to be ready
 wait_for_service() {
     local url=$1
@@ -69,45 +86,66 @@ wait_for_service() {
     return 1
 }
 
-# Function to start vLLM service
-start_vllm() {
-    print_status "Starting vLLM service..."
+# Function to start Ollama service
+start_ollama() {
+    print_status "Starting Ollama service..."
 
-    # Check if vLLM is already running
-    if check_port $VLLM_PORT; then
-        print_warning "vLLM service is already running on port $VLLM_PORT"
+    # Check if Ollama is installed
+    if ! check_ollama; then
+        print_error "Ollama is not installed. Please install Ollama first:"
+        echo "   macOS: brew install ollama"
+        echo "   Linux: curl -fsSL https://ollama.com/install.sh | sh"
+        echo "   Windows: Download from https://ollama.com/download"
+        echo ""
+        echo "After installation, run this script again."
+        return 1
+    fi
+
+    # Check if Ollama is already running
+    if check_ollama_service; then
+        print_success "Ollama service is already running on port $OLLAMA_PORT"
+
+        # Check if the required model is available
+        if ollama list | grep -q "$DEFAULT_MODEL"; then
+            print_success "Model '$DEFAULT_MODEL' is available"
+        else
+            print_warning "Model '$DEFAULT_MODEL' not found. Attempting to pull..."
+            print_status "This may take several minutes depending on your internet connection and model size."
+            ollama pull "$DEFAULT_MODEL" || {
+                print_error "Failed to pull model '$DEFAULT_MODEL'"
+                print_status "Please run 'ollama pull $DEFAULT_MODEL' manually"
+                return 1
+            }
+            print_success "Model '$DEFAULT_MODEL' pulled successfully"
+        fi
         return 0
     fi
 
-    # Determine model path
-    if [ -d "$MODEL_PATH" ]; then
-        MODEL_ARG="--model $MODEL_PATH"
-        print_status "Using local model at: $MODEL_PATH"
+    # Start Ollama service
+    print_status "Starting Ollama service..."
+    ollama serve > ollama.log 2>&1 &
+    OLLAMA_PID=$!
+    echo $OLLAM_PID > .ollama_pid
+
+    print_status "Ollama started with PID: $OLLAMA_PID"
+    print_status "Logs: ollama.log"
+
+    # Wait for Ollama to be ready
+    wait_for_service "http://localhost:$OLLAMA_PORT/api/tags" "Ollama"
+
+    # Check and pull required model
+    if ollama list | grep -q "$DEFAULT_MODEL"; then
+        print_success "Model '$DEFAULT_MODEL' is available"
     else
-        MODEL_ARG="--model $DEFAULT_MODEL"
-        print_status "Using HuggingFace model: $DEFAULT_MODEL"
-        print_warning "This will download the model on first run (may take several minutes)"
+        print_warning "Model '$DEFAULT_MODEL' not found. Pulling now..."
+        print_status "This may take several minutes..."
+        ollama pull "$DEFAULT_MODEL" || {
+            print_error "Failed to pull model '$DEFAULT_MODEL'"
+            print_status "Please run 'ollama pull $DEFAULT_MODEL' manually"
+            return 1
+        }
+        print_success "Model '$DEFAULT_MODEL' pulled successfully"
     fi
-
-    # Start vLLM in background
-    python -m vllm.entrypoints.openai.api_server \
-        $MODEL_ARG \
-        --port $VLLM_PORT \
-        --host 0.0.0.0 \
-        --max-model-len 128000 \
-        --trust-remote-code \
-        --dtype auto \
-        --api-key "token-abc123" \
-        > vllm.log 2>&1 &
-
-    VLLM_PID=$!
-    echo $VLLM_PID > .vllm_pid
-
-    print_status "vLLM started with PID: $VLLM_PID"
-    print_status "Logs: vllm.log"
-
-    # Wait for vLLM to be ready
-    wait_for_service "http://localhost:$VLLM_PORT/health" "vLLM"
 }
 
 # Function to start FastAPI service
@@ -137,18 +175,20 @@ start_fastapi() {
 stop_services() {
     print_status "Stopping services..."
 
-    # Stop vLLM
-    if [ -f ".vllm_pid" ]; then
-        VLLM_PID=$(cat .vllm_pid)
-        if kill -0 $VLLM_PID 2>/dev/null; then
-            print_status "Stopping vLLM (PID: $VLLM_PID)"
-            kill $VLLM_PID
-            rm .vllm_pid
-            print_success "vLLM stopped"
+    # Stop Ollama (if started by this script)
+    if [ -f ".ollama_pid" ]; then
+        OLLAMA_PID=$(cat .ollama_pid)
+        if kill -0 $OLLAMA_PID 2>/dev/null; then
+            print_status "Stopping Ollama (PID: $OLLAMA_PID)"
+            kill $OLLAMA_PID
+            rm .ollama_pid
+            print_success "Ollama stopped"
         else
-            print_warning "vLLM process not found"
-            rm .vllm_pid
+            print_warning "Ollama process not found"
+            rm .ollama_pid
         fi
+    else
+        print_status "Ollama was not started by this script - leaving it running"
     fi
 
     # Stop FastAPI
@@ -170,10 +210,20 @@ stop_services() {
 show_status() {
     print_status "Service Status:"
 
-    if check_port $VLLM_PORT; then
-        print_success "vLLM: Running on port $VLLM_PORT"
+    if check_ollama_service; then
+        print_success "Ollama: Running on port $OLLAMA_PORT"
+        # Show available models
+        if check_ollama; then
+            MODELS=$(ollama list 2>/dev/null | tail -n +2 | awk '{print $1}' | tr '\n' ', ' | sed 's/,$//')
+            if [ -n "$MODELS" ]; then
+                print_status "Available models: $MODELS"
+            fi
+        fi
     else
-        print_warning "vLLM: Not running"
+        print_warning "Ollama: Not running"
+        if ! check_ollama; then
+            print_status "Ollama is not installed"
+        fi
     fi
 
     if check_port $FASTAPI_PORT; then
@@ -187,7 +237,19 @@ show_status() {
 test_setup() {
     print_status "Testing setup..."
 
-    # Check dependencies
+    # Check Ollama installation
+    print_status "Checking Ollama installation..."
+    if check_ollama; then
+        print_success "Ollama is installed"
+    else
+        print_error "Ollama is not installed. Please install Ollama first:"
+        echo "   macOS: brew install ollama"
+        echo "   Linux: curl -fsSL https://ollama.com/install.sh | sh"
+        echo "   Windows: Download from https://ollama.com/download"
+        exit 1
+    fi
+
+    # Check Python dependencies
     print_status "Checking Python dependencies..."
     if ! python -c "import fastapi, uvicorn, chromadb, requests" 2>/dev/null; then
         print_error "Missing dependencies. Please run: pip install -r requirements.txt"
@@ -231,15 +293,17 @@ case "${1:-start}" in
     start)
         print_status "Starting Local Financial Assistant..."
         test_setup
-        start_vllm
+        start_ollama || exit 1
         start_fastapi
         print_success "All services started successfully!"
         echo
         print_status "API Endpoints:"
-        echo "  • vLLM API: http://localhost:$VLLM_PORT"
+        echo "  • Ollama API: http://localhost:$OLLAMA_PORT"
         echo "  • FastAPI: http://localhost:$FASTAPI_PORT"
         echo "  • Health Check: http://localhost:$FASTAPI_PORT/health"
+        echo "  • Models List: http://localhost:$FASTAPI_PORT/models"
         echo "  • Chat Endpoint: http://localhost:$FASTAPI_PORT/chat"
+        echo "  • Web UI: http://localhost:$FASTAPI_PORT"
         echo "  • Interactive Docs: http://localhost:$FASTAPI_PORT/docs"
         echo
         print_status "To test: ./run.sh test"
@@ -276,10 +340,10 @@ case "${1:-start}" in
         test_setup
         ;;
 
-    vllm-only)
-        print_status "Starting vLLM only..."
-        start_vllm
-        print_success "vLLM started on port $VLLM_PORT"
+    ollama-only)
+        print_status "Starting Ollama only..."
+        start_ollama || exit 1
+        print_success "Ollama started on port $OLLAMA_PORT"
         ;;
 
     fastapi-only)
@@ -289,7 +353,7 @@ case "${1:-start}" in
         ;;
 
     *)
-        echo "Usage: $0 {start|stop|restart|status|test|interactive|setup|vllm-only|fastapi-only}"
+        echo "Usage: $0 {start|stop|restart|status|test|interactive|setup|ollama-only|fastapi-only}"
         echo
         echo "Commands:"
         echo "  start        - Start all services (default)"
@@ -299,8 +363,15 @@ case "${1:-start}" in
         echo "  test         - Run API tests"
         echo "  interactive  - Interactive test mode"
         echo "  setup        - Test setup requirements"
-        echo "  vllm-only    - Start only vLLM service"
+        echo "  ollama-only  - Start only Ollama service"
         echo "  fastapi-only - Start only FastAPI service"
+        echo
+        echo "Examples:"
+        echo "  ./run.sh start              # Start Ollama and FastAPI"
+        echo "  ./run.sh ollama-only        # Start only Ollama"
+        echo "  ./run.sh status             # Check service status"
+        echo "  ollama pull llama3.2        # Pull a specific model"
+        echo "  ollama list                 # List available models"
         exit 1
         ;;
 esac

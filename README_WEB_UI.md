@@ -35,8 +35,9 @@ Your Local Financial Assistant now includes a modern, ChatGPT-like web interface
 ## 🚀 Quick Start
 
 ### Prerequisites
-- All backend services running (vLLM + FastAPI)
+- All backend services running (Ollama + FastAPI)
 - Modern web browser (Chrome, Firefox, Safari, Edge)
+- Ollama installed with at least one model (see README_OLLAMA.md)
 
 ### Access the Web UI
 
@@ -202,8 +203,20 @@ The web UI uses the same API endpoints as the programmatic interface:
 POST /chat
 {
   "message": "Analyze gold market trends",
-  "model": "phi3",
+  "model": "llama3.2",
   "memory_context": 3
+}
+```
+
+### Models Endpoint
+```javascript
+GET /models
+// Returns available models and current model information
+{
+  "current_model": "llama3.2",
+  "model_available": true,
+  "available_models": ["llama3.2", "mistral:7b"],
+  "total_models": 2
 }
 ```
 

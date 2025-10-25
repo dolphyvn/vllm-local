@@ -19,7 +19,17 @@ class FinancialAssistantClient:
         self.base_url = base_url
         self.session = requests.Session()
 
-    def chat(self, message: str, model: str = "phi3") -> Dict[str, Any]:
+    def check_models(self):
+        """Check available models"""
+        try:
+            response = self.session.get(f"{self.base_url}/models", timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Models check failed: {e}")
+            return {"error": str(e)}
+
+    def chat(self, message: str, model: str = "llama3.2") -> Dict[str, Any]:
         """
         Send a chat message to the assistant
 
@@ -94,7 +104,7 @@ class FinancialAssistantClient:
             print(f"Health check failed: {e}")
             return {"error": str(e)}
 
-    def openai_style_chat(self, messages: list, model: str = "phi3") -> Dict[str, Any]:
+    def openai_style_chat(self, messages: list, model: str = "llama3.2") -> Dict[str, Any]:
         """
         OpenAI-style chat completion call (for compatibility testing)
 
@@ -137,7 +147,7 @@ class FinancialAssistantClient:
         else:
             return {"error": response["error"]}
 
-    def chat_stream(self, message: str, model: str = "phi3"):
+    def chat_stream(self, message: str, model: str = "llama3.2"):
         """
         Streaming chat completion that yields tokens as they arrive
 
@@ -195,6 +205,19 @@ def run_tests():
     else:
         print(f"❌ Health check failed: {health}")
         return
+
+    # Test 1.5: Models Check
+    print("\n1️⃣5️⃣ Models Check Test")
+    print("-" * 30)
+    models = client.check_models()
+    if "error" not in models:
+        print(f"✅ Models check passed:")
+        print(f"   Current model: {models.get('current_model', 'Unknown')}")
+        print(f"   Model available: {models.get('model_available', 'Unknown')}")
+        print(f"   Available models: {models.get('available_models', [])}")
+        print(f"   Total models: {models.get('total_models', 0)}")
+    else:
+        print(f"❌ Models check failed: {models}")
 
     # Test 2: Memory Storage
     print("\n2️⃣ Memory Storage Test")
@@ -304,7 +327,7 @@ def interactive_mode():
     client = FinancialAssistantClient()
 
     print("\n🤖 Interactive Financial Assistant")
-    print("Type 'quit' to exit, 'memorize' to store memory, 'health' for health check, 'stream' to toggle streaming")
+    print("Type 'quit' to exit, 'memorize' to store memory, 'health' for health check, 'stream' to toggle streaming, 'models' to list models")
     print("-" * 60)
 
     streaming_mode = False
@@ -334,6 +357,14 @@ def interactive_mode():
             if user_input.lower() == 'stream':
                 streaming_mode = not streaming_mode
                 print(f"Streaming mode: {'ON' if streaming_mode else 'OFF'}")
+                continue
+
+            if user_input.lower() == 'models':
+                models_info = client.check_models()
+                if "error" not in models_info:
+                    print(f"Available Models: {models_info}")
+                else:
+                    print(f"Models check failed: {models_info}")
                 continue
 
             if user_input:
