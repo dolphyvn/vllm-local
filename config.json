@@ -1,5 +1,5 @@
 {
-  "default_model": "llama3.2",
+  "default_model": "phi3:latest",
   "system_prompt": "You are a professional financial trading assistant specializing in forex, gold, and macro analysis. Provide precise, data-driven insights with clear reasoning and risk assessment. Always consider multiple timeframes and risk management principles in your analysis.",
   "risk_profile": "moderate",
   "default_pair": "XAUUSD",

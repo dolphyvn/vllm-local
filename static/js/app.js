@@ -519,22 +519,47 @@ class FinancialAssistantApp {
 
     async checkSystemHealth() {
         try {
-            const response = await this.apiCall('/health');
+            console.log('Checking system health...');
+            const response = await this.apiCall('/health', null, 'GET');
+            console.log('Health response:', response);
 
             if (response.error) {
                 this.updateSystemStatus('error', 'API Error');
                 return;
             }
 
-            document.getElementById('modelStatus').textContent = response.model || 'Unknown';
-            document.getElementById('memoryStatus').textContent = response.memory_status || 'Unknown';
-
+            // Update individual status fields
+            const modelStatus = document.getElementById('modelStatus');
+            const memoryStatus = document.getElementById('memoryStatus');
             const apiStatus = document.getElementById('apiStatus');
+
+            // Model status
+            if (response.model) {
+                modelStatus.textContent = response.model;
+                modelStatus.className = 'status-value online';
+            } else {
+                modelStatus.textContent = 'Unknown';
+                modelStatus.className = 'status-value offline';
+            }
+
+            // Memory status
+            if (response.memory_status) {
+                memoryStatus.textContent = response.memory_status;
+                memoryStatus.className = response.memory_status === 'ok' ? 'status-value online' : 'status-value offline';
+            } else {
+                memoryStatus.textContent = 'Unknown';
+                memoryStatus.className = 'status-value offline';
+            }
+
+            // API status
             apiStatus.textContent = 'Online';
             apiStatus.className = 'status-value online';
+
+            console.log('System health updated successfully');
+
         } catch (error) {
-            this.updateSystemStatus('error', 'Offline');
             console.error('Health check error:', error);
+            this.updateSystemStatus('error', 'Offline');
         }
     }
 
