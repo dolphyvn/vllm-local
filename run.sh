@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # run.sh - Startup script for local financial assistant
-# Handles vLLM and FastAPI service startup with proper configuration
+# Handles Ollama and FastAPI service startup with proper configuration
 
 set -e
 
@@ -317,7 +317,7 @@ case "${1:-start}" in
     restart)
         stop_services
         sleep 2
-        start_vllm
+        start_ollama || exit 1
         start_fastapi
         print_success "Services restarted successfully!"
         ;;

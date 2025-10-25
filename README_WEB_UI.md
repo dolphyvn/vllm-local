@@ -158,7 +158,7 @@ The system status panel shows:
 ### Common Issues
 
 #### "Failed to connect to the server"
-- **Solution**: Ensure vLLM and FastAPI services are running
+- **Solution**: Ensure Ollama and FastAPI services are running
 - **Check**: Run `./run.sh status` to verify services
 
 #### "Web UI template not found"
@@ -171,7 +171,7 @@ The system status panel shows:
 
 #### Slow response times
 - **Solution**: Check GPU availability and model loading
-- **Check**: Monitor system resources and vLLM logs
+- **Check**: Monitor system resources and Ollama logs
 
 ### Debug Information
 
@@ -185,8 +185,8 @@ The system status panel shows:
 # View FastAPI logs
 tail -f fastapi.log
 
-# View vLLM logs
-tail -f vllm.log
+# View Ollama logs
+tail -f ollama.log
 ```
 
 #### Health Check
@@ -261,7 +261,7 @@ GET /memories?n=10
 
 ### System Performance
 - Ensure adequate RAM (16GB+ recommended)
-- Use GPU acceleration for vLLM when available
+- Use GPU acceleration for Ollama when available
 - Monitor system resource usage
 
 ### Network Performance

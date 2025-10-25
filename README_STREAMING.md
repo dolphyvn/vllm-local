@@ -218,14 +218,14 @@ Assistant: Trading [appears token by token] psychology...
 @app.post("/chat/stream")
 async def chat_stream_endpoint(request: StreamChatRequest):
     async def generate_tokens():
-        # Stream tokens from vLLM
-        async for token in vllm_client.chat_completion_stream(messages):
+        # Stream tokens from Ollama
+        async for token in ollama_client.chat_completion_stream(messages):
             yield f"data: {json.dumps(chunk)}\n\n"
 
     return StreamingResponse(generate_tokens(), media_type="text/plain")
 ```
 
-#### 2. vLLM Streaming Client
+#### 2. Ollama Streaming Client
 ```python
 async def chat_completion_stream(self, messages, **kwargs):
     response = requests.post(url, json=payload, stream=True)
@@ -320,8 +320,8 @@ Monitor streaming activity:
 # View FastAPI logs
 tail -f fastapi.log | grep "streaming"
 
-# View vLLM logs
-tail -f vllm.log
+# View Ollama logs
+tail -f ollama.log
 ```
 
 ### Browser Debugging
