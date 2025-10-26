@@ -24,6 +24,7 @@ import threading
 
 from memory import MemoryManager
 from lessons import LessonManager
+from auth import AuthManager, get_current_user
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -54,10 +55,6 @@ if os.path.exists("templates"):
 else:
     templates = None
 
-# Initialize memory managers
-memory_manager = MemoryManager()
-lesson_manager = LessonManager()
-
 # Load configuration
 def load_config():
     """Load system configuration from config.json"""
@@ -73,7 +70,35 @@ def load_config():
 
 config = load_config()
 
+# Initialize managers with config
+memory_manager = MemoryManager()
+lesson_manager = LessonManager()
+
+# Initialize authentication manager
+auth_settings = config.get("auth_settings", {})
+auth_manager = AuthManager(
+    password=auth_settings.get("password", "admin123"),
+    session_timeout_minutes=auth_settings.get("session_timeout_minutes", 480),
+    cookie_secret=auth_settings.get("cookie_secret", "default-secret")
+)
+
 # Pydantic models for request/response
+class LoginRequest(BaseModel):
+    password: str
+
+class LoginResponse(BaseModel):
+    success: bool
+    message: str
+    session_token: Optional[str] = None
+
+class LogoutResponse(BaseModel):
+    success: bool
+    message: str
+
+class AuthStatusResponse(BaseModel):
+    authenticated: bool
+    message: str
+
 class ChatRequest(BaseModel):
     message: str
     model: str = config.get("default_model", "phi3")
@@ -375,16 +400,19 @@ def build_contextual_prompt(user_message: str, memory_context: int = 3, lesson_c
     return messages
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(request: ChatRequest, http_request: Request):
     """
     Main chat endpoint that processes user messages and returns AI responses
 
     Args:
         request: ChatRequest containing message and parameters
+        http_request: FastAPI request object for authentication
 
     Returns:
         ChatResponse with AI response and metadata
     """
+    # Check authentication
+    get_current_user(auth_manager, http_request)
     logger.info(f"Received chat request: {request.message[:100]}...")
 
     try:
@@ -418,16 +446,19 @@ async def chat_endpoint(request: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/chat/stream")
-async def chat_stream_endpoint(request: StreamChatRequest):
+async def chat_stream_endpoint(request: StreamChatRequest, http_request: Request):
     """
     Streaming chat endpoint that processes user messages and returns AI responses in real-time
 
     Args:
         request: StreamChatRequest containing message and parameters
+        http_request: FastAPI request object for authentication
 
     Returns:
         StreamingResponse with token-by-token AI response
     """
+    # Check authentication
+    get_current_user(auth_manager, http_request)
     logger.info(f"Received streaming chat request: {request.message[:100]}...")
 
     async def generate_tokens():
@@ -562,6 +593,114 @@ async def memorize_endpoint(request: MemorizeRequest):
         logger.error(f"Memorize endpoint error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/auth/login", response_model=LoginResponse)
+async def login_endpoint(request: LoginRequest, response: JSONResponse):
+    """
+    Authenticate user and create session
+
+    Args:
+        request: LoginRequest with password
+        response: FastAPI response for setting cookies
+
+    Returns:
+        LoginResponse with authentication result
+    """
+    logger.info("Login attempt received")
+
+    try:
+        if auth_manager.verify_password(request.password):
+            session_token = auth_manager.create_session()
+
+            # Set cookie in response
+            actual_response = JSONResponse(content=LoginResponse(
+                success=True,
+                message="Authentication successful",
+                session_token=session_token
+            ))
+            auth_manager.set_auth_cookie(actual_response, session_token)
+
+            logger.info(f"User authenticated successfully")
+            return actual_response
+        else:
+            logger.warning("Invalid password attempt")
+            return LoginResponse(
+                success=False,
+                message="Invalid password"
+            )
+
+    except Exception as e:
+        logger.error(f"Login error: {e}")
+        return LoginResponse(
+            success=False,
+            message="Authentication failed"
+        )
+
+@app.post("/auth/logout", response_model=LogoutResponse)
+async def logout_endpoint(request: Request):
+    """
+    Logout user and remove session
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        LogoutResponse with logout result
+    """
+    logger.info("Logout attempt received")
+
+    try:
+        session_token = auth_manager.extract_token_from_request(request)
+        if session_token and auth_manager.remove_session(session_token):
+            logger.info("User logged out successfully")
+            return LogoutResponse(
+                success=True,
+                message="Logged out successfully"
+            )
+        else:
+            logger.warning("No valid session found for logout")
+            return LogoutResponse(
+                success=False,
+                message="No valid session found"
+            )
+
+    except Exception as e:
+        logger.error(f"Logout error: {e}")
+        return LogoutResponse(
+            success=False,
+            message="Logout failed"
+        )
+
+@app.get("/auth/status", response_model=AuthStatusResponse)
+async def auth_status_endpoint(request: Request):
+    """
+    Check authentication status
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        AuthStatusResponse with authentication status
+    """
+    try:
+        session_token = auth_manager.extract_token_from_request(request)
+        if session_token and auth_manager.validate_session(session_token):
+            return AuthStatusResponse(
+                authenticated=True,
+                message="User is authenticated"
+            )
+        else:
+            return AuthStatusResponse(
+                authenticated=False,
+                message="User is not authenticated"
+            )
+
+    except Exception as e:
+        logger.error(f"Auth status check error: {e}")
+        return AuthStatusResponse(
+            authenticated=False,
+            message="Authentication status check failed"
+        )
+
 @app.get("/health", response_model=HealthResponse)
 async def health_endpoint():
     """
@@ -611,14 +750,48 @@ async def list_models_endpoint():
         logger.error(f"Failed to list models: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/login", response_class=HTMLResponse)
+async def login_page_endpoint(request: Request):
+    """
+    Serve the login page
+
+    Returns:
+        HTML login page
+    """
+    if templates and os.path.exists("templates/login.html"):
+        return templates.TemplateResponse("login.html", {"request": request})
+    else:
+        # Fallback basic login HTML if template not found
+        return HTMLResponse("""
+        <!DOCTYPE html>
+        <html>
+        <head><title>Login Required</title></head>
+        <body>
+            <h1>Authentication Required</h1>
+            <p>Please login to access the financial assistant.</p>
+            <form method="post" action="/auth/login">
+                <input type="password" name="password" placeholder="Password" required>
+                <button type="submit">Login</button>
+            </form>
+        </body>
+        </html>
+        """)
+
 @app.get("/", response_class=HTMLResponse)
 async def ui_endpoint(request: Request):
     """
-    Serve the main web UI
+    Serve the main web UI (requires authentication)
 
     Returns:
         HTML page with the web interface
     """
+    # Check if user is authenticated
+    session_token = auth_manager.extract_token_from_request(request)
+    if not session_token or not auth_manager.validate_session(session_token):
+        # Redirect to login page
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/login", status_code=302)
+
     if templates and os.path.exists("templates/index.html"):
         return templates.TemplateResponse("index.html", {"request": request})
     else:

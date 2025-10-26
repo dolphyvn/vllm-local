@@ -6,16 +6,187 @@ class FinancialAssistantApp {
         this.chatHistory = [];
         this.isTyping = false;
         this.theme = localStorage.getItem('theme') || 'light';
+        this.isAuthenticated = false;
 
         this.init();
     }
 
     init() {
-        this.setupEventListeners();
-        this.loadTheme();
-        this.checkSystemHealth();
-        this.loadRecentMemories();
-        this.autoResizeTextarea();
+        this.checkAuthentication();
+    }
+
+    async checkAuthentication() {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/auth/status`);
+            const data = await response.json();
+
+            if (data.authenticated) {
+                this.isAuthenticated = true;
+                this.setupEventListeners();
+                this.loadTheme();
+                this.checkSystemHealth();
+                this.loadRecentMemories();
+                this.autoResizeTextarea();
+                this.setupLogoutButton();
+            } else {
+                // Redirect to login page
+                window.location.href = '/login';
+            }
+        } catch (error) {
+            console.error('Auth check failed:', error);
+            window.location.href = '/login';
+        }
+    }
+
+    async logout() {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/auth/logout`, {
+                method: 'POST'
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                // Clear any local session data
+                document.cookie = 'session_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+
+                // Redirect to login page
+                window.location.href = '/login';
+            }
+        } catch (error) {
+            console.error('Logout failed:', error);
+            // Still redirect to login page even if logout API fails
+            window.location.href = '/login';
+        }
+    }
+
+    setupLogoutButton() {
+        // Find the settings button and add logout functionality
+        const settingsBtn = document.getElementById('settingsBtn');
+        if (settingsBtn) {
+            settingsBtn.addEventListener('click', () => {
+                this.showSettingsModal();
+            });
+        }
+    }
+
+    showSettingsModal() {
+        // Create a simple settings modal with logout option
+        const modalHtml = `
+            <div class="modal-overlay" id="settingsModal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3><i class="fas fa-cog"></i> Settings</h3>
+                        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="settings-section">
+                            <h4><i class="fas fa-sign-out-alt"></i> Session</h4>
+                            <button class="logout-btn" onclick="app.logout()">
+                                <i class="fas fa-sign-out-alt"></i>
+                                Logout
+                            </button>
+                        </div>
+                        <div class="settings-section">
+                            <h4><i class="fas fa-info-circle"></i> About</h4>
+                            <p>Financial Assistant v1.0.0</p>
+                            <p>Authenticated with secure session management</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Add modal styles if not already present
+        if (!document.querySelector('#modal-styles')) {
+            const style = document.createElement('style');
+            style.id = 'modal-styles';
+            style.textContent = `
+                .modal-overlay {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: rgba(0, 0, 0, 0.5);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 1000;
+                }
+                .modal-content {
+                    background: white;
+                    border-radius: 12px;
+                    padding: 0;
+                    max-width: 400px;
+                    width: 90%;
+                    max-height: 80vh;
+                    overflow-y: auto;
+                    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+                }
+                .modal-header {
+                    padding: 1.5rem;
+                    border-bottom: 1px solid #e2e8f0;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }
+                .modal-header h3 {
+                    margin: 0;
+                    color: #2d3748;
+                }
+                .modal-close {
+                    background: none;
+                    border: none;
+                    font-size: 1.2rem;
+                    cursor: pointer;
+                    color: #718096;
+                    padding: 0.5rem;
+                    border-radius: 6px;
+                    transition: all 0.3s ease;
+                }
+                .modal-close:hover {
+                    background: #f7fafc;
+                    color: #2d3748;
+                }
+                .modal-body {
+                    padding: 1.5rem;
+                }
+                .settings-section {
+                    margin-bottom: 1.5rem;
+                }
+                .settings-section:last-child {
+                    margin-bottom: 0;
+                }
+                .settings-section h4 {
+                    margin: 0 0 0.75rem 0;
+                    color: #4a5568;
+                    font-size: 0.9rem;
+                }
+                .logout-btn {
+                    background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%);
+                    color: white;
+                    border: none;
+                    padding: 0.75rem 1.5rem;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    font-weight: 500;
+                    transition: all 0.3s ease;
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                }
+                .logout-btn:hover {
+                    transform: translateY(-1px);
+                    box-shadow: 0 4px 12px rgba(245, 101, 101, 0.3);
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        // Add modal to page
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
     }
 
     setupEventListeners() {

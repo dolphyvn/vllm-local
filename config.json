@@ -17,6 +17,11 @@
     "sentiment_analysis": true,
     "correlation_analysis": true
   },
+  "auth_settings": {
+    "password": "admin123",
+    "session_timeout_minutes": 480,
+    "cookie_secret": "your-secret-key-change-this-in-production"
+  },
   "api_settings": {
     "ollama_base_url": "http://localhost:11434",
     "ollama_timeout": 120,
