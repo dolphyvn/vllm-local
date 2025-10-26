@@ -405,7 +405,7 @@ class MemoryManager:
                 "title": lesson_title,
                 "category": category,
                 "confidence": confidence,
-                "tags": tags or [],
+                "tags": ",".join(tags) if tags else "",  # Convert list to string for ChromaDB
                 "source_conversation": source_conversation,
                 "content_length": len(lesson_content)
             }

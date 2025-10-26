@@ -10,9 +10,11 @@ import pandas as pd
 import requests
 import json
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import sys
 import os
+import glob
+from pathlib import Path
 
 class XAUUSDKnowledgeFeeder:
     def __init__(self, base_url: str = "http://ai.vn.aliases.me"):
@@ -127,20 +129,44 @@ class XAUUSDKnowledgeFeeder:
             with open(file_path, 'r') as f:
                 lines = f.readlines()
 
-            # Find the daily data line
+            # Find the daily data line (look for any date in format YYYY.MM.DD)
             for i, line in enumerate(lines):
-                if line.startswith("2025.10.23,"):
-                    data_parts = line.strip().split(',')
-                    return {
-                        "date": "2025.10.23",
-                        "open": float(data_parts[1]),
-                        "high": float(data_parts[2]),
-                        "low": float(data_parts[3]),
-                        "close": float(data_parts[4]),
-                        "volume": int(data_parts[5])
-                    }
+                # Skip header and empty lines, look for data lines
+                if (line.strip() and
+                    not line.startswith("Historical") and
+                    not line.startswith("Date Range") and
+                    not line.startswith("Generated") and
+                    not line.startswith("Daily") and
+                    not line.startswith("=") and
+                    not line.startswith("Date,") and
+                    ',' in line and
+                    line.count(',') >= 5):
 
-            print("❌ Could not find target data line")
+                    # Check if it starts with a date pattern (YYYY.MM.DD or YYYY-MM-DD)
+                    parts = line.strip().split(',')
+                    if len(parts) >= 6:
+                        date_str = parts[0]
+                        # Validate date format by trying to parse numeric values
+                        try:
+                            open_price = float(parts[1])
+                            high_price = float(parts[2])
+                            low_price = float(parts[3])
+                            close_price = float(parts[4])
+                            volume = int(parts[5])
+
+                            return {
+                                "date": date_str,
+                                "open": open_price,
+                                "high": high_price,
+                                "low": low_price,
+                                "close": close_price,
+                                "volume": volume
+                            }
+                        except (ValueError, IndexError):
+                            # If can't parse numeric values, continue to next line
+                            continue
+
+            print("❌ Could not find valid target data line")
             return None
 
         except Exception as e:
@@ -311,6 +337,110 @@ Key Learning Points:
             print(f"❌ Error feeding correction: {e}")
             return False
 
+    def scan_csv_folder(self, folder_path: str) -> List[Tuple[str, str]]:
+        """
+        Scan folder for CSV file pairs (training and target files)
+        Returns list of (training_file, target_file) tuples
+        """
+        if not os.path.exists(folder_path):
+            print(f"❌ Folder not found: {folder_path}")
+            return []
+
+        # Find all CSV files in the folder
+        csv_files = glob.glob(os.path.join(folder_path, "*.csv"))
+
+        if not csv_files:
+            print(f"❌ No CSV files found in {folder_path}")
+            return []
+
+        print(f"📁 Found {len(csv_files)} CSV files in {folder_path}")
+
+        # Separate training and target files
+        training_files = []
+        target_files = []
+
+        for file_path in csv_files:
+            filename = os.path.basename(file_path)
+            # Target files usually end with 'T.csv' or have 'target' in the name
+            if filename.endswith('T.csv') or 'target' in filename.lower():
+                target_files.append(file_path)
+            else:
+                training_files.append(file_path)
+
+        print(f"   Training files: {len(training_files)}")
+        print(f"   Target files: {len(target_files)}")
+
+        # Match training and target files
+        file_pairs = []
+
+        for training_file in training_files:
+            training_name = os.path.basename(training_file).replace('.csv', '')
+
+            # Try to find matching target file
+            matching_target = None
+
+            # First try exact match with 'T' suffix
+            expected_target = training_name + 'T.csv'
+            for target_file in target_files:
+                if os.path.basename(target_file) == expected_target:
+                    matching_target = target_file
+                    break
+
+            # If not found, try fuzzy matching
+            if not matching_target:
+                training_base = training_name.replace('-2025', '').replace('.', '').replace('_', '')
+                for target_file in target_files:
+                    target_name = os.path.basename(target_file).replace('.csv', '').replace('T', '')
+                    target_base = target_name.replace('-2025', '').replace('.', '').replace('_', '')
+                    if training_base in target_base or target_base in training_base:
+                        matching_target = target_file
+                        break
+
+            if matching_target:
+                file_pairs.append((training_file, matching_target))
+            else:
+                print(f"⚠️  No target file found for {os.path.basename(training_file)}")
+
+        print(f"📊 Matched {len(file_pairs)} file pairs")
+        return file_pairs
+
+    def process_folder(self, folder_path: str):
+        """
+        Process all CSV file pairs in a folder
+        """
+        print(f"📂 Processing CSV folder: {folder_path}")
+
+        # Get all file pairs
+        file_pairs = self.scan_csv_folder(folder_path)
+
+        if not file_pairs:
+            print("❌ No valid file pairs found")
+            return False
+
+        # Process each pair
+        total_pairs = len(file_pairs)
+        successful_pairs = 0
+
+        for i, (training_file, target_file) in enumerate(file_pairs, 1):
+            print(f"\n{'='*60}")
+            print(f"📁 Processing pair {i}/{total_pairs}")
+            print(f"{'='*60}")
+
+            success = self.process_files(training_file, target_file)
+            if success:
+                successful_pairs += 1
+
+        # Summary
+        print(f"\n{'='*60}")
+        print(f"📊 FOLDER PROCESSING SUMMARY")
+        print(f"{'='*60}")
+        print(f"Total file pairs: {total_pairs}")
+        print(f"Successful: {successful_pairs}")
+        print(f"Failed: {total_pairs - successful_pairs}")
+        print(f"Success rate: {(successful_pairs/total_pairs)*100:.1f}%")
+
+        return successful_pairs > 0
+
     def process_files(self, training_file: str, target_file: str):
         """Process both training and target files"""
         print(f"🔍 Processing {training_file}...")
@@ -381,34 +511,71 @@ Key Learning Points:
 
 def main():
     """Main function to run the XAUUSD knowledge feeder"""
-    # File paths
-    training_file = "data/XAUUSD-2025.10.21.csv"
-    target_file = "data/XAUUSD-2025.10.21T.csv"
+    import argparse
 
-    # Check if files exist
-    if not os.path.exists(training_file):
-        print(f"❌ Training file not found: {training_file}")
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Feed XAUUSD knowledge to AI model')
+    parser.add_argument('--training', type=str, help='Training CSV file path')
+    parser.add_argument('--target', type=str, help='Target CSV file path')
+    parser.add_argument('--folder', type=str, help='Folder containing CSV files')
+    parser.add_argument('--base-url', type=str, default='http://ai.vn.aliases.me', help='Base URL for API')
+
+    args = parser.parse_args()
+
+    # Validate arguments
+    if args.folder and (args.training or args.target):
+        print("❌ Cannot specify both --folder and individual files (--training, --target)")
         return False
 
-    if not os.path.exists(target_file):
-        print(f"❌ Target file not found: {target_file}")
-        return False
+    if not args.folder and not args.training and not args.target:
+        # Default to single file pair if no arguments provided
+        print("📋 No arguments provided, using default files...")
+        args.training = "data/XAUUSD-2025.10.21.csv"
+        args.target = "data/XAUUSD-2025.10.21T.csv"
 
     # Initialize feeder
-    feeder = XAUUSDKnowledgeFeeder()
+    feeder = XAUUSDKnowledgeFeeder(base_url=args.base_url)
 
     if not feeder.session_token:
         print("❌ Failed to authenticate")
         return False
 
-    # Process files
-    success = feeder.process_files(training_file, target_file)
+    success = False
 
-    if success:
-        print(f"\n🎉 XAUUSD knowledge feeding completed!")
-        print(f"💡 You can now ask the AI about XAUUSD predictions and trading strategies")
+    if args.folder:
+        # Process folder
+        print(f"📂 Processing CSV folder mode")
+        success = feeder.process_folder(args.folder)
+
+        if success:
+            print(f"\n🎉 CSV folder processing completed!")
+            print(f"💡 The AI model now knows about all XAUUSD prediction cases in the folder")
+        else:
+            print(f"\n💥 CSV folder processing failed!")
+
     else:
-        print(f"\n💥 XAUUSD knowledge feeding failed!")
+        # Process single file pair
+        if not args.training or not args.target:
+            print("❌ Both --training and --target files must be specified")
+            return False
+
+        # Check if files exist
+        if not os.path.exists(args.training):
+            print(f"❌ Training file not found: {args.training}")
+            return False
+
+        if not os.path.exists(args.target):
+            print(f"❌ Target file not found: {args.target}")
+            return False
+
+        print(f"📁 Processing single file pair mode")
+        success = feeder.process_files(args.training, args.target)
+
+        if success:
+            print(f"\n🎉 XAUUSD knowledge feeding completed!")
+            print(f"💡 You can now ask the AI about XAUUSD predictions and trading strategies")
+        else:
+            print(f"\n💥 XAUUSD knowledge feeding failed!")
 
     return success
 
