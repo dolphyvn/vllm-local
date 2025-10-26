@@ -84,7 +84,9 @@ class MemoryManager:
             }
 
             if metadata:
-                full_metadata.update(metadata)
+                # Filter out None values from metadata to prevent ChromaDB errors
+                filtered_metadata = {k: v if v is not None else "" for k, v in metadata.items()}
+                full_metadata.update(filtered_metadata)
 
             # Combine user input and model reply for embedding
             combined_text = f"User: {user_input}\nAssistant: {model_reply}"
@@ -398,7 +400,7 @@ class MemoryManager:
             timestamp = datetime.now().isoformat()
             memory_id = f"lesson_{timestamp}_{hash(lesson_title) % 10000}"
 
-            # Prepare metadata
+            # Prepare metadata (ensure no None values for ChromaDB)
             metadata = {
                 "timestamp": timestamp,
                 "type": "lesson",
@@ -406,7 +408,7 @@ class MemoryManager:
                 "category": category,
                 "confidence": confidence,
                 "tags": ",".join(tags) if tags else "",  # Convert list to string for ChromaDB
-                "source_conversation": source_conversation,
+                "source_conversation": source_conversation or "",  # Convert None to empty string
                 "content_length": len(lesson_content)
             }
 
