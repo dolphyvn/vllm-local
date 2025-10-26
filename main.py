@@ -708,6 +708,16 @@ async def auth_status_endpoint(request: Request):
             "message": "Authentication status check failed"
         }
 
+@app.get("/debug/version")
+async def debug_version_endpoint():
+    """Debug endpoint to check version info"""
+    return {
+        "backend_version": "2.0.0",
+        "auth_system": "enabled",
+        "token_auth_fallback": "enabled",
+        "timestamp": datetime.now().isoformat()
+    }
+
 @app.get("/debug/config")
 async def debug_config_endpoint():
     """
