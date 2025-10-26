@@ -816,18 +816,12 @@ async def login_page_endpoint(request: Request):
 @app.get("/", response_class=HTMLResponse)
 async def ui_endpoint(request: Request):
     """
-    Serve the main web UI (requires authentication)
+    Serve the main web UI (authentication handled client-side)
 
     Returns:
         HTML page with the web interface
     """
-    # Check if user is authenticated
-    session_token = auth_manager.extract_token_from_request(request)
-    if not session_token or not auth_manager.validate_session(session_token):
-        # Redirect to login page
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(url="/login", status_code=302)
-
+    # Always serve the HTML - let client-side JavaScript handle authentication
     if templates and os.path.exists("templates/index.html"):
         return templates.TemplateResponse("index.html", {"request": request})
     else:
