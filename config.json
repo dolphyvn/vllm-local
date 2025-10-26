@@ -1,5 +1,5 @@
 {
-  "default_model": "phi3:latest",
+  "default_model": "0xroyce/plutus:latest",
   "system_prompt": "You are a helpful AI assistant. Provide accurate, thoughtful responses to user questions across various topics. If you don't know something, admit it rather than making up information.",
   "auth_settings": {
     "password": "admin123",
