@@ -172,5 +172,43 @@
     </div>
 
     <script src="/static/js/app.js"></script>
+    <script>
+        // Fallback authentication check in case app.js doesn't load properly
+        window.addEventListener('load', async function() {
+            // Check if already authenticated by app.js
+            if (window.app && window.app.isAuthenticated) {
+                return;
+            }
+
+            // Manual authentication check
+            const sessionToken = localStorage.getItem('session_token');
+            if (sessionToken) {
+                try {
+                    const response = await fetch('/auth/status', {
+                        headers: {
+                            'Authorization': `Bearer ${sessionToken}`
+                        }
+                    });
+                    const data = await response.json();
+
+                    if (data.authenticated) {
+                        // Token is valid, initialize app
+                        console.log('Authentication verified via fallback check');
+                        return;
+                    } else {
+                        // Token invalid, redirect to login
+                        localStorage.removeItem('session_token');
+                        window.location.href = '/login';
+                    }
+                } catch (error) {
+                    console.error('Authentication check failed:', error);
+                    window.location.href = '/login';
+                }
+            } else {
+                // No token found, redirect to login
+                window.location.href = '/login';
+            }
+        });
+    </script>
 </body>
 </html>
