@@ -1,5 +1,5 @@
 {
-  "default_model": "0xroyce/plutus:latest",
+  "default_model": "gemma3:1b",
   "system_prompt": "You are a helpful AI assistant. Provide accurate, thoughtful responses to user questions across various topics. If you don't know something, admit it rather than making up information.",
   "auth_settings": {
     "password": "admin123",
@@ -7,8 +7,8 @@
     "cookie_secret": "your-secret-key-change-this-in-production"
   },
   "api_settings": {
-    "ollama_base_url": "http://localhost:11434",
-    "ollama_timeout": 120,
+    "ollama_base_url": "http://127.0.0.1:11434",
+    "ollama_timeout": 300,
     "max_tokens": 2048,
     "temperature": 0.7,
     "memory_context_entries": 3
