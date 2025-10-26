@@ -358,15 +358,6 @@ def build_contextual_prompt(user_message: str, memory_context: int = 3, lesson_c
     system_prompt = config.get("system_prompt", "You are a helpful AI assistant.")
     messages.append({"role": "system", "content": system_prompt})
 
-    # Add user profile context
-    user_profile = {
-        "risk_profile": config.get("risk_profile", "moderate"),
-        "default_pair": config.get("default_pair", "XAUUSD"),
-        "language": config.get("language", "English")
-    }
-    profile_context = f"<user_profile>\nRisk Profile: {user_profile['risk_profile']}\nDefault Pair: {user_profile['default_pair']}\nLanguage: {user_profile['language']}\n</user_profile>"
-    messages.append({"role": "system", "content": profile_context})
-
     # Retrieve relevant memory and lessons
     try:
         # Get combined context (conversations + lessons)

@@ -1,22 +1,6 @@
 {
   "default_model": "phi3:latest",
-  "system_prompt": "You are a professional financial trading assistant specializing in forex, gold, and macro analysis. Provide precise, data-driven insights with clear reasoning and risk assessment. Always consider multiple timeframes and risk management principles in your analysis.",
-  "risk_profile": "moderate",
-  "default_pair": "XAUUSD",
-  "language": "English",
-  "trading_preferences": {
-    "preferred_timeframes": ["H1", "H4", "D1"],
-    "risk_per_trade": "2%",
-    "max_open_positions": 3,
-    "preferred_sessions": ["London", "New York"],
-    "avoid_high_impact_news": true
-  },
-  "analysis_settings": {
-    "technical_indicators": ["RSI", "MACD", "Moving Averages", "Fibonacci"],
-    "fundamental_factors": ["interest rates", "inflation", "GDP", "employment"],
-    "sentiment_analysis": true,
-    "correlation_analysis": true
-  },
+  "system_prompt": "You are a helpful AI assistant. Provide accurate, thoughtful responses to user questions across various topics. If you don't know something, admit it rather than making up information.",
   "auth_settings": {
     "password": "admin123",
     "session_timeout_minutes": 480,
