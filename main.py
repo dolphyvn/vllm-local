@@ -584,8 +584,8 @@ async def memorize_endpoint(request: MemorizeRequest):
         logger.error(f"Memorize endpoint error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/auth/login", response_model=LoginResponse)
-async def login_endpoint(request: LoginRequest, response: JSONResponse):
+@app.post("/auth/login")
+async def login_endpoint(request: LoginRequest):
     """
     Authenticate user and create session
 
@@ -606,31 +606,38 @@ async def login_endpoint(request: LoginRequest, response: JSONResponse):
         if auth_manager.verify_password(request.password):
             session_token = auth_manager.create_session()
 
+            # Create response data
+            response_data = {
+                "success": True,
+                "message": "Authentication successful",
+                "session_token": session_token
+            }
+
             # Set cookie in response
-            actual_response = JSONResponse(content=LoginResponse(
-                success=True,
-                message="Authentication successful",
-                session_token=session_token
-            ))
+            from fastapi.responses import Response
+            actual_response = Response(
+                content=json.dumps(response_data),
+                media_type="application/json"
+            )
             auth_manager.set_auth_cookie(actual_response, session_token)
 
             logger.info(f"User authenticated successfully")
             return actual_response
         else:
             logger.warning("Invalid password attempt")
-            return LoginResponse(
-                success=False,
-                message="Invalid password"
-            )
+            return {
+                "success": False,
+                "message": "Invalid password"
+            }
 
     except Exception as e:
         logger.error(f"Login error: {e}")
-        return LoginResponse(
-            success=False,
-            message="Authentication failed"
-        )
+        return {
+            "success": False,
+            "message": "Authentication failed"
+        }
 
-@app.post("/auth/logout", response_model=LogoutResponse)
+@app.post("/auth/logout")
 async def logout_endpoint(request: Request):
     """
     Logout user and remove session
@@ -647,25 +654,25 @@ async def logout_endpoint(request: Request):
         session_token = auth_manager.extract_token_from_request(request)
         if session_token and auth_manager.remove_session(session_token):
             logger.info("User logged out successfully")
-            return LogoutResponse(
-                success=True,
-                message="Logged out successfully"
-            )
+            return {
+                "success": True,
+                "message": "Logged out successfully"
+            }
         else:
             logger.warning("No valid session found for logout")
-            return LogoutResponse(
-                success=False,
-                message="No valid session found"
-            )
+            return {
+                "success": False,
+                "message": "No valid session found"
+            }
 
     except Exception as e:
         logger.error(f"Logout error: {e}")
-        return LogoutResponse(
-            success=False,
-            message="Logout failed"
-        )
+        return {
+            "success": False,
+            "message": "Logout failed"
+        }
 
-@app.get("/auth/status", response_model=AuthStatusResponse)
+@app.get("/auth/status")
 async def auth_status_endpoint(request: Request):
     """
     Check authentication status
@@ -679,22 +686,22 @@ async def auth_status_endpoint(request: Request):
     try:
         session_token = auth_manager.extract_token_from_request(request)
         if session_token and auth_manager.validate_session(session_token):
-            return AuthStatusResponse(
-                authenticated=True,
-                message="User is authenticated"
-            )
+            return {
+                "authenticated": True,
+                "message": "User is authenticated"
+            }
         else:
-            return AuthStatusResponse(
-                authenticated=False,
-                message="User is not authenticated"
-            )
+            return {
+                "authenticated": False,
+                "message": "User is not authenticated"
+            }
 
     except Exception as e:
         logger.error(f"Auth status check error: {e}")
-        return AuthStatusResponse(
-            authenticated=False,
-            message="Authentication status check failed"
-        )
+        return {
+            "authenticated": False,
+            "message": "Authentication status check failed"
+        }
 
 @app.get("/debug/config")
 async def debug_config_endpoint():
