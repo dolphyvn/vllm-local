@@ -153,15 +153,20 @@ class AuthManager:
             response: FastAPI response object
             session_token: Session token to store in cookie
         """
-        expires = datetime.now() + timedelta(minutes=self.session_timeout_minutes)
-        response.set_cookie(
-            key="session_token",
-            value=session_token,
-            expires=expires,
-            httponly=True,
-            samesite="strict",
-            secure=False  # Set to True if using HTTPS
-        )
+        try:
+            expires = datetime.utcnow() + timedelta(minutes=self.session_timeout_minutes)
+            response.set_cookie(
+                key="session_token",
+                value=session_token,
+                expires=expires,
+                httponly=True,
+                samesite="strict",
+                secure=False  # Set to True if using HTTPS
+            )
+            logger.info(f"Authentication cookie set successfully for session: {session_token[:8]}...")
+        except Exception as e:
+            logger.error(f"Failed to set authentication cookie: {e}")
+            raise
 
     def extract_token_from_request(self, request: Request) -> Optional[str]:
         """
