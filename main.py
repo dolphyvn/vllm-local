@@ -24,6 +24,7 @@ import threading
 
 from memory import MemoryManager
 from lessons import LessonManager
+from rag_enhancer import RAGEnhancer
 from auth import AuthManager, get_current_user
 
 # Configure logging
@@ -73,6 +74,7 @@ config = load_config()
 # Initialize managers with config
 memory_manager = MemoryManager()
 lesson_manager = LessonManager()
+rag_enhancer = RAGEnhancer(memory_manager)
 
 # Initialize authentication manager
 auth_settings = config.get("auth_settings", {})
@@ -390,6 +392,52 @@ def build_contextual_prompt(user_message: str, memory_context: int = 3, lesson_c
 
     return messages
 
+
+def build_enhanced_contextual_prompt(user_message: str, context_data: Dict[str, Any]) -> List[Dict[str, str]]:
+    """
+    Build an enhanced prompt with improved RAG context
+
+    Args:
+        user_message: The user's input message
+        context_data: Enhanced context data from RAG enhancer
+
+    Returns:
+        List of message dictionaries for the model
+    """
+    messages = []
+
+    # Enhanced system prompt with RAG instructions
+    system_prompt = config.get("system_prompt", "You are a helpful AI assistant.")
+    enhanced_system_prompt = f"""{system_prompt}
+
+You have access to retrieved context from previous conversations and learned lessons. Use this information to provide more accurate and informed responses. Pay special attention to corrections and definitions that have been previously validated."""
+
+    messages.append({"role": "system", "content": enhanced_system_prompt})
+
+    # Add conversation memories with better formatting
+    if context_data.get("conversations"):
+        memory_context_str = "<previous_conversations>\n"
+        for i, entry in enumerate(context_data["conversations"], 1):
+            memory_context_str += f"Previous Conversation {i}: {entry}\n"
+        memory_context_str += "</previous_conversations>\n"
+        messages.append({"role": "system", "content": memory_context_str})
+
+    # Add lesson memories with emphasis on corrections
+    if context_data.get("lessons"):
+        lesson_context_str = "<learned_lessons_and_corrections>\n"
+        for i, lesson in enumerate(context_data["lessons"], 1):
+            lesson_context_str += f"Lesson {i}: {lesson}\n"
+        lesson_context_str += "</learned_lessons_and_corrections>\n"
+        lesson_context_str += "CRITICAL: Pay close attention to these lessons, especially corrections. They contain validated information that should override your general knowledge. Use corrections to avoid repeating mistakes and provide accurate definitions.\n"
+        messages.append({"role": "system", "content": lesson_context_str})
+
+        logger.info(f"Enhanced RAG applied: {len(context_data.get('conversations', []))} memories, {len(context_data.get('lessons', []))} lessons")
+
+    # Add user message
+    messages.append({"role": "user", "content": user_message})
+
+    return messages
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest, http_request: Request):
     """
@@ -407,8 +455,11 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     logger.info(f"Received chat request: {request.message[:100]}...")
 
     try:
-        # Build contextual prompt with memory
-        messages = build_contextual_prompt(request.message, request.memory_context)
+        # Enhanced RAG context retrieval
+        context_data = rag_enhancer.enhance_query_with_rag(request.message, max_context=request.memory_context)
+
+        # Build contextual prompt with enhanced memory
+        messages = build_enhanced_contextual_prompt(request.message, context_data)
 
         # Get response from Ollama
         ai_response = await ollama_client.chat_completion(messages)
@@ -417,6 +468,15 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
         try:
             memory_manager.add_memory(request.message, ai_response)
             memory_used = True
+
+            # Check if this is a correction and store as lesson
+            try:
+                lesson_stored = rag_enhancer.store_correction_as_lesson(request.message, ai_response)
+                if lesson_stored:
+                    logger.info("✅ Correction detected and stored as lesson in regular chat")
+            except Exception as e:
+                logger.warning(f"Failed to store correction as lesson in regular chat: {e}")
+
         except Exception as e:
             logger.warning(f"Failed to store conversation in memory: {e}")
             memory_used = False
@@ -459,8 +519,11 @@ async def chat_stream_endpoint(request: StreamChatRequest, http_request: Request
         start_time = datetime.now().isoformat()
 
         try:
-            # Build contextual prompt with memory
-            messages = build_contextual_prompt(request.message, request.memory_context)
+            # Enhanced RAG context retrieval
+            context_data = rag_enhancer.enhance_query_with_rag(request.message, max_context=request.memory_context)
+
+            # Build contextual prompt with enhanced memory
+            messages = build_enhanced_contextual_prompt(request.message, context_data)
 
             # Send initial chunk with metadata
             initial_chunk = {
@@ -517,6 +580,15 @@ async def chat_stream_endpoint(request: StreamChatRequest, http_request: Request
             try:
                 memory_manager.add_memory(request.message, accumulated_response)
                 logger.info(f"Stored streaming conversation in memory")
+
+                # Check if this is a correction and store as lesson
+                try:
+                    lesson_stored = rag_enhancer.store_correction_as_lesson(request.message, accumulated_response)
+                    if lesson_stored:
+                        logger.info("✅ Correction detected and stored as lesson")
+                except Exception as e:
+                    logger.warning(f"Failed to store correction as lesson: {e}")
+
             except Exception as e:
                 logger.warning(f"Failed to store streaming conversation in memory: {e}")
 
