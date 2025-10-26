@@ -50,7 +50,10 @@ class AuthManager:
             True if password matches, False otherwise
         """
         password_hash = self._hash_password(password)
-        return secrets.compare_digest(password_hash, self.password_hash)
+        logger.info(f"Verifying password: provided_hash={password_hash[:8]}..., stored_hash={self.password_hash[:8]}...")
+        result = secrets.compare_digest(password_hash, self.password_hash)
+        logger.info(f"Password verification result: {result}")
+        return result
 
     def create_session(self) -> str:
         """

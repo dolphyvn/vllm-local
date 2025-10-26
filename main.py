@@ -599,6 +599,10 @@ async def login_endpoint(request: LoginRequest, response: JSONResponse):
     logger.info("Login attempt received")
 
     try:
+        logger.info(f"Login attempt received with password length: {len(request.password)}")
+        logger.info(f"Auth manager initialized: {bool(auth_manager)}")
+        logger.info(f"Password from config loaded: {bool(auth_manager.password_hash)}")
+
         if auth_manager.verify_password(request.password):
             session_token = auth_manager.create_session()
 
@@ -691,6 +695,25 @@ async def auth_status_endpoint(request: Request):
             authenticated=False,
             message="Authentication status check failed"
         )
+
+@app.get("/debug/config")
+async def debug_config_endpoint():
+    """
+    Debug endpoint to check configuration loading
+    """
+    try:
+        return {
+            "auth_config_loaded": bool(config.get("auth_settings")),
+            "auth_settings": {
+                "password_present": bool(auth_settings.get("password")),
+                "session_timeout": auth_settings.get("session_timeout_minutes"),
+                "cookie_secret_present": bool(auth_settings.get("cookie_secret"))
+            },
+            "auth_manager_initialized": bool(auth_manager),
+            "active_sessions": auth_manager.get_session_count()
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/health", response_model=HealthResponse)
 async def health_endpoint():
