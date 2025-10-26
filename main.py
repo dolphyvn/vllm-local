@@ -239,13 +239,13 @@ class OllamaClient:
             "stream": True,
             "options": {
                 "temperature": kwargs.get("temperature", 0.7),
-                "num_predict": kwargs.get("max_tokens", 2048)
+                "num_predict": kwargs.get("max_tokens", 4096)
             }
         }
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, headers=self.headers, timeout=120) as response:
+                async with session.post(url, json=payload, headers=self.headers, timeout=300) as response:
                     response.raise_for_status()
 
                     async for line in response.content:

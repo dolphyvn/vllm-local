@@ -139,10 +139,29 @@ class FinancialAssistantApp {
                         try {
                             const parsed = JSON.parse(data);
 
+                            // Handle error chunks
+                            if (parsed.error) {
+                                if (parsed.choices && parsed.choices[0] && parsed.choices[0].delta && parsed.choices[0].delta.content) {
+                                    accumulatedContent += parsed.choices[0].delta.content;
+                                    this.updateStreamingMessage(messageId, accumulatedContent);
+                                }
+                                this.finalizeStreamingMessage(messageId, accumulatedContent);
+                                this.isTyping = false;
+                                return;
+                            }
+
                             if (parsed.choices && parsed.choices[0]) {
                                 const delta = parsed.choices[0].delta;
 
                                 if (delta.content) {
+                                    // Check if content contains an error message from Ollama
+                                    if (delta.content.includes('ERROR:')) {
+                                        accumulatedContent += delta.content;
+                                        this.updateStreamingMessage(messageId, accumulatedContent);
+                                        this.finalizeStreamingMessage(messageId, accumulatedContent);
+                                        this.isTyping = false;
+                                        return;
+                                    }
                                     accumulatedContent += delta.content;
                                     this.updateStreamingMessage(messageId, accumulatedContent);
                                 }
