@@ -26,6 +26,11 @@ from memory import MemoryManager
 from lessons import LessonManager
 from rag_enhancer import RAGEnhancer
 from auth import AuthManager, get_current_user
+from knowledge_feeder import (
+    KnowledgeEntry, BulkKnowledgeRequest, LessonEntry,
+    CorrectionEntry, DefinitionEntry, ApiResponse, KnowledgeStats,
+    KnowledgeCategory
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -1275,6 +1280,339 @@ async def health_check():
             "error": str(e),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
+
+# ==================== KNOWLEDGE FEEDING API ENDPOINTS ====================
+
+@app.post("/api/knowledge/add", response_model=ApiResponse)
+async def add_knowledge_entry(entry: KnowledgeEntry, request: Request):
+    """
+    Add a single knowledge entry programmatically
+
+    Args:
+        entry: Knowledge entry to add
+        request: FastAPI request object for authentication
+
+    Returns:
+        ApiResponse with success status
+    """
+    get_current_user(auth_manager, request)
+    logger.info(f"Adding knowledge entry: {entry.topic}")
+
+    try:
+        # Convert knowledge entry to lesson format
+        lesson_content = f"Topic: {entry.topic}\n\nContent: {entry.content}\n\nSource: {entry.source or 'API Upload'}\nConfidence: {entry.confidence}\nTags: {', '.join(entry.tags)}"
+
+        # Store as lesson in memory
+        memory_manager.add_lesson_memory(
+            lesson_title=f"Knowledge: {entry.topic}",
+            lesson_content=lesson_content,
+            category=entry.category.value,
+            confidence=entry.confidence,
+            tags=entry.tags
+        )
+
+        logger.info(f"✅ Successfully added knowledge entry: {entry.topic}")
+
+        return ApiResponse(
+            success=True,
+            message=f"Knowledge entry '{entry.topic}' added successfully",
+            data={"topic": entry.topic, "category": entry.category.value}
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to add knowledge entry: {e}")
+        return ApiResponse(
+            success=False,
+            message=f"Failed to add knowledge entry: {str(e)}"
+        )
+
+@app.post("/api/knowledge/bulk", response_model=ApiResponse)
+async def add_bulk_knowledge(request: BulkKnowledgeRequest, http_request: Request):
+    """
+    Add multiple knowledge entries in bulk
+
+    Args:
+        request: Bulk knowledge request
+        http_request: FastAPI request object for authentication
+
+    Returns:
+        ApiResponse with bulk operation results
+    """
+    get_current_user(auth_manager, http_request)
+    logger.info(f"Adding bulk knowledge: {len(request.knowledge_entries)} entries")
+
+    try:
+        results = {
+            "successful": [],
+            "failed": [],
+            "total": len(request.knowledge_entries)
+        }
+
+        for entry in request.knowledge_entries:
+            try:
+                # Convert to lesson format
+                lesson_content = f"Topic: {entry.topic}\n\nContent: {entry.content}\n\nSource: {entry.source or 'API Bulk Upload'}\nConfidence: {entry.confidence}\nTags: {', '.join(entry.tags)}\nPriority: {entry.priority}"
+
+                memory_manager.add_lesson_memory(
+                    lesson_title=f"Knowledge: {entry.topic}",
+                    lesson_content=lesson_content,
+                    category=entry.category.value,
+                    confidence=entry.confidence,
+                    tags=entry.tags
+                )
+
+                results["successful"].append(entry.topic)
+                logger.info(f"✅ Added bulk knowledge entry: {entry.topic}")
+
+            except Exception as e:
+                results["failed"].append({"topic": entry.topic, "error": str(e)})
+                logger.error(f"Failed to add bulk knowledge entry {entry.topic}: {e}")
+
+        success_count = len(results["successful"])
+        total_count = results["total"]
+
+        return ApiResponse(
+            success=success_count > 0,
+            message=f"Bulk upload completed: {success_count}/{total_count} entries added successfully",
+            data=results
+        )
+
+    except Exception as e:
+        logger.error(f"Bulk knowledge upload failed: {e}")
+        return ApiResponse(
+            success=False,
+            message=f"Bulk upload failed: {str(e)}"
+        )
+
+@app.post("/api/lessons/add", response_model=ApiResponse)
+async def add_lesson_entry(lesson: LessonEntry, request: Request):
+    """
+    Add a structured lesson programmatically
+
+    Args:
+        lesson: Lesson entry to add
+        request: FastAPI request object for authentication
+
+    Returns:
+        ApiResponse with success status
+    """
+    get_current_user(auth_manager, request)
+    logger.info(f"Adding lesson: {lesson.title}")
+
+    try:
+        # Format lesson content
+        lesson_content = f"""Situation: {lesson.situation}
+
+What was learned: {lesson.lesson}
+
+Correct approach: {lesson.correct_approach or 'N/A'}
+
+Wrong approach: {lesson.wrong_approach or 'N/A'}
+
+Confidence: {lesson.confidence}
+Tags: {', '.join(lesson.tags)}"""
+
+        memory_manager.add_lesson_memory(
+            lesson_title=lesson.title,
+            lesson_content=lesson_content,
+            category=lesson.category.value,
+            confidence=lesson.confidence,
+            tags=lesson.tags
+        )
+
+        logger.info(f"✅ Successfully added lesson: {lesson.title}")
+
+        return ApiResponse(
+            success=True,
+            message=f"Lesson '{lesson.title}' added successfully",
+            data={"title": lesson.title, "category": lesson.category.value}
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to add lesson: {e}")
+        return ApiResponse(
+            success=False,
+            message=f"Failed to add lesson: {str(e)}"
+        )
+
+@app.post("/api/corrections/add", response_model=ApiResponse)
+async def add_correction_entry(correction: CorrectionEntry, request: Request):
+    """
+    Add a correction entry programmatically
+
+    Args:
+        correction: Correction entry to add
+        request: FastAPI request object for authentication
+
+    Returns:
+        ApiResponse with success status
+    """
+    get_current_user(auth_manager, request)
+    logger.info(f"Adding correction: {correction.topic}")
+
+    try:
+        # Format correction content
+        correction_content = f"""Incorrect Statement: {correction.incorrect_statement}
+
+Correct Statement: {correction.correct_statement}
+
+Topic: {correction.topic}
+
+Explanation: {correction.explanation or 'No explanation provided'}
+
+Confidence: {correction.confidence}
+
+Type: User Correction"""
+
+        memory_manager.add_lesson_memory(
+            lesson_title=f"Correction: {correction.topic}",
+            lesson_content=correction_content,
+            category=correction.category.value,
+            confidence=correction.confidence,
+            tags=[correction.topic, "correction", "api_upload"]
+        )
+
+        logger.info(f"✅ Successfully added correction: {correction.topic}")
+
+        return ApiResponse(
+            success=True,
+            message=f"Correction for '{correction.topic}' added successfully",
+            data={"topic": correction.topic, "category": correction.category.value}
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to add correction: {e}")
+        return ApiResponse(
+            success=False,
+            message=f"Failed to add correction: {str(e)}"
+        )
+
+@app.post("/api/definitions/add", response_model=ApiResponse)
+async def add_definition_entry(definition: DefinitionEntry, request: Request):
+    """
+    Add a definition entry programmatically
+
+    Args:
+        definition: Definition entry to add
+        request: FastAPI request object for authentication
+
+    Returns:
+        ApiResponse with success status
+    """
+    get_current_user(auth_manager, request)
+    logger.info(f"Adding definition: {definition.term}")
+
+    try:
+        # Format definition content
+        definition_content = f"""Term: {definition.term}
+
+Definition: {definition.definition}
+
+Expanded Form: {definition.expanded_form or 'N/A'}
+
+Context: {definition.context or 'General context'}
+
+Examples: {' | '.join(definition.examples) if definition.examples else 'No examples provided'}
+
+Type: Definition"""
+
+        memory_manager.add_lesson_memory(
+            lesson_title=f"Definition: {definition.term}",
+            lesson_content=definition_content,
+            category=definition.category.value,
+            confidence=1.0,  # Definitions should have high confidence
+            tags=[definition.term, "definition", "api_upload"] + definition.examples
+        )
+
+        logger.info(f"✅ Successfully added definition: {definition.term}")
+
+        return ApiResponse(
+            success=True,
+            message=f"Definition for '{definition.term}' added successfully",
+            data={"term": definition.term, "category": definition.category.value}
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to add definition: {e}")
+        return ApiResponse(
+            success=False,
+            message=f"Failed to add definition: {str(e)}"
+        )
+
+@app.get("/api/knowledge/stats", response_model=KnowledgeStats)
+async def get_knowledge_stats(request: Request):
+    """
+    Get statistics about stored knowledge
+
+    Args:
+        request: FastAPI request object for authentication
+
+    Returns:
+        KnowledgeStats with detailed statistics
+    """
+    get_current_user(auth_manager, request)
+
+    try:
+        # Get lesson statistics
+        lesson_stats = lesson_manager.get_lesson_statistics()
+
+        # Get memory statistics by searching for different categories
+        categories = ["corrections", "definitions", "trading", "general"]
+        entries_by_category = {}
+
+        for category in categories:
+            try:
+                results = memory_manager.search_lessons(category, category=category, n=100)
+                entries_by_category[category] = len(results)
+            except Exception as e:
+                entries_by_category[category] = 0
+                logger.warning(f"Failed to get stats for category {category}: {e}")
+
+        return KnowledgeStats(
+            total_entries=lesson_stats.get("total_lessons", 0),
+            entries_by_category=entries_by_category,
+            last_updated=lesson_stats.get("last_lesson_added", datetime.now().isoformat()),
+            total_lessons=lesson_stats.get("total_lessons", 0),
+            total_corrections=entries_by_category.get("corrections", 0),
+            total_definitions=entries_by_category.get("definitions", 0)
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to get knowledge stats: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve statistics: {str(e)}")
+
+@app.delete("/api/knowledge/clear", response_model=ApiResponse)
+async def clear_all_knowledge(request: Request):
+    """
+    Clear all stored knowledge (use with caution!)
+
+    Args:
+        request: FastAPI request object for authentication
+
+    Returns:
+        ApiResponse with operation result
+    """
+    get_current_user(auth_manager, request)
+    logger.warning("⚠️ Clear all knowledge requested")
+
+    try:
+        # Clear memory collection
+        memory_manager.clear_all()
+
+        logger.warning("⚠️ All knowledge cleared successfully")
+
+        return ApiResponse(
+            success=True,
+            message="All knowledge has been cleared successfully",
+            data={"action": "clear_all", "timestamp": datetime.now().isoformat()}
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to clear knowledge: {e}")
+        return ApiResponse(
+            success=False,
+            message=f"Failed to clear knowledge: {str(e)}"
+        )
 
 @app.on_event("shutdown")
 async def shutdown_event():
