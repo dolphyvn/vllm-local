@@ -17,7 +17,16 @@ class FinancialAssistantApp {
 
     async checkAuthentication() {
         try {
-            const response = await fetch(`${this.apiBaseUrl}/auth/status`);
+            // Add session token to Authorization header if available in localStorage
+            const sessionToken = localStorage.getItem('session_token');
+            const headers = {};
+            if (sessionToken) {
+                headers['Authorization'] = `Bearer ${sessionToken}`;
+            }
+
+            const response = await fetch(`${this.apiBaseUrl}/auth/status`, {
+                headers: headers
+            });
             const data = await response.json();
 
             if (data.authenticated) {
@@ -40,21 +49,32 @@ class FinancialAssistantApp {
 
     async logout() {
         try {
+            // Add session token to Authorization header if available
+            const sessionToken = localStorage.getItem('session_token');
+            const headers = {};
+            if (sessionToken) {
+                headers['Authorization'] = `Bearer ${sessionToken}`;
+            }
+
             const response = await fetch(`${this.apiBaseUrl}/auth/logout`, {
-                method: 'POST'
+                method: 'POST',
+                headers: headers
             });
 
             const data = await response.json();
             if (data.success) {
                 // Clear any local session data
                 document.cookie = 'session_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+                localStorage.removeItem('session_token');
 
                 // Redirect to login page
                 window.location.href = '/login';
             }
         } catch (error) {
             console.error('Logout failed:', error);
-            // Still redirect to login page even if logout API fails
+            // Clear local data and redirect to login page even if logout API fails
+            document.cookie = 'session_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+            localStorage.removeItem('session_token');
             window.location.href = '/login';
         }
     }
@@ -268,11 +288,18 @@ class FinancialAssistantApp {
             // Create assistant message that will be updated with streaming content
             const messageId = this.addStreamingMessage('assistant', '');
 
+            // Add session token to Authorization header if available
+            const sessionToken = localStorage.getItem('session_token');
+            const headers = {
+                'Content-Type': 'application/json',
+            };
+            if (sessionToken) {
+                headers['Authorization'] = `Bearer ${sessionToken}`;
+            }
+
             const response = await fetch(`${this.apiBaseUrl}/chat/stream`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: headers,
                 body: JSON.stringify({
                     message: message,
                     model: 'phi3',

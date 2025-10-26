@@ -606,23 +606,28 @@ async def login_endpoint(request: LoginRequest):
         if auth_manager.verify_password(request.password):
             session_token = auth_manager.create_session()
 
-            # Create response data
+            # Create response data with session token
             response_data = {
                 "success": True,
                 "message": "Authentication successful",
                 "session_token": session_token
             }
 
-            # Set cookie in response
-            from fastapi.responses import Response
-            actual_response = Response(
-                content=json.dumps(response_data),
-                media_type="application/json"
-            )
-            auth_manager.set_auth_cookie(actual_response, session_token)
-
-            logger.info(f"User authenticated successfully")
-            return actual_response
+            try:
+                # Try to set cookie in response
+                from fastapi.responses import Response
+                actual_response = Response(
+                    content=json.dumps(response_data),
+                    media_type="application/json"
+                )
+                auth_manager.set_auth_cookie(actual_response, session_token)
+                logger.info(f"User authenticated successfully with cookie")
+                return actual_response
+            except Exception as cookie_error:
+                # Fallback: return response without cookie if cookie setting fails
+                logger.warning(f"Cookie setting failed, using token-only auth: {cookie_error}")
+                logger.info(f"User authenticated successfully (token-only)")
+                return response_data
         else:
             logger.warning("Invalid password attempt")
             return {

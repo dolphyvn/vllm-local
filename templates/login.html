@@ -344,6 +344,11 @@
                     const data = await response.json();
 
                     if (data.success) {
+                        // Store session token in localStorage if provided
+                        if (data.session_token) {
+                            localStorage.setItem('session_token', data.session_token);
+                        }
+
                         this.showSuccess('Authentication successful! Redirecting...');
                         setTimeout(() => {
                             window.location.href = '/';
