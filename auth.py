@@ -160,8 +160,9 @@ class AuthManager:
                 value=session_token,
                 expires=expires,
                 httponly=True,
-                samesite="strict",
-                secure=False  # Set to True if using HTTPS
+                samesite="lax",  # Changed from strict to lax
+                secure=False,     # Set to True if using HTTPS
+                path="/"          # Explicitly set path
             )
             logger.info(f"Authentication cookie set successfully for session: {session_token[:8]}...")
         except Exception as e:
