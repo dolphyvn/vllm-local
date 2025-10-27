@@ -884,6 +884,9 @@ async def switch_model_endpoint(request: Request, model_name: str = None):
     # Check authentication
     get_current_user(auth_manager, request)
 
+    # Declare global at the beginning
+    global ollama_client
+
     try:
         # Get model name from form data or JSON
         if not model_name:
@@ -916,7 +919,6 @@ async def switch_model_endpoint(request: Request, model_name: str = None):
         )
 
         # Update global client reference
-        global ollama_client
         ollama_client = new_ollama_client
 
         logger.info(f"Switched to model: {model_name}")
