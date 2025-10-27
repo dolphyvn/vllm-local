@@ -193,6 +193,11 @@ class MemoryManager:
             List of memory entries with metadata
         """
         try:
+            self._ensure_initialized()
+            if not self._initialized or self.collection is None:
+                logger.warning("Memory not available for recent memories")
+                return []
+
             # Get all entries (ChromaDB doesn't have direct time-based sorting)
             results = self.collection.query(
                 query_texts=["recent"],

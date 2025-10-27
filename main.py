@@ -914,8 +914,7 @@ async def switch_model_endpoint(request: Request, model_name: str = None):
         # Create new Ollama client with updated model
         new_ollama_client = OllamaClient(
             base_url=config["api_settings"]["ollama_base_url"],
-            model=model_name,
-            timeout=config["api_settings"]["ollama_timeout"]
+            model=model_name
         )
 
         # Update global client reference
