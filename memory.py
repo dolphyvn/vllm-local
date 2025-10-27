@@ -494,14 +494,42 @@ class MemoryManager:
                 logger.warning("Memory not available for combined context")
                 return {"conversations": [], "lessons": []}
 
-            # Get conversation memories
-            conversation_memories = self.get_memory(query, n=memory_context)
+            # Enhanced memory retrieval strategy
+            conversation_memories = []
+
+            # 1. First, get recent conversations (for context continuity across sessions)
+            recent_memories = self.get_recent_memories(n=memory_context)
+            for memory in recent_memories:
+                if memory.get('metadata', {}).get('type') == 'conversation':
+                    conversation_memories.append(f"[{memory['metadata'].get('timestamp', 'Unknown')}] {memory['text']}")
+
+            # 2. Get query-relevant memories via semantic search
+            query_memories = self.get_memory(query, n=memory_context)
+
+            # 3. Merge and deduplicate while preserving order
+            all_memories = conversation_memories.copy()
+            for memory in query_memories:
+                if memory not in all_memories:  # Avoid duplicates
+                    all_memories.append(memory)
+
+            # 4. Limit to requested number
+            conversation_memories = all_memories[:memory_context]
 
             # Get lesson memories
             lesson_memories = self.search_lessons(query, n=lesson_context)
 
             # Format lesson memories as text
             lesson_texts = [lesson["document"] for lesson in lesson_memories]
+
+            # 5. Special handling for personal information queries
+            personal_info_keywords = ['name', 'who am i', 'my name', 'remember me', 'about me']
+            query_lower = query.lower()
+            if any(keyword in query_lower for keyword in personal_info_keywords):
+                # Search for personal information in memories with broader criteria
+                personal_memories = self.search_personal_information()
+                for memory in personal_memories:
+                    if memory not in conversation_memories:
+                        conversation_memories.insert(0, memory)  # Prioritize personal info
 
             logger.info(f"Retrieved combined context: {len(conversation_memories)} conversations, {len(lesson_texts)} lessons")
 
@@ -513,3 +541,53 @@ class MemoryManager:
         except Exception as e:
             logger.error(f"Failed to get combined context: {e}")
             return {"conversations": [], "lessons": []}
+
+    def search_personal_information(self) -> List[str]:
+        """
+        Search for personal information stored in conversations
+        Returns:
+            List of conversation memories containing personal information
+        """
+        try:
+            self._ensure_initialized()
+            if not self._initialized or self.collection is None:
+                logger.warning("Memory not available for personal information search")
+                return []
+
+            # Search for common personal information patterns
+            personal_queries = [
+                "my name is",
+                "I am",
+                "I'm",
+                "call me",
+                "name is",
+                "remember that I",
+                "I live in",
+                "I work as"
+            ]
+
+            personal_memories = []
+            for query in personal_queries:
+                results = self.get_memory(query, n=5)
+                for memory in results:
+                    if memory not in personal_memories:
+                        personal_memories.append(memory)
+
+            # Also search for conversations where user introduced themselves
+            # Look for recent conversations that might contain personal info
+            recent_memories = self.get_recent_memories(n=20)
+            for memory in recent_memories:
+                if memory.get('metadata', {}).get('type') == 'conversation':
+                    text = memory['text'].lower()
+                    # Check if this contains personal information
+                    if any(pattern in text for pattern in ['my name is', 'i am', 'i\'m', 'call me']):
+                        formatted_memory = f"[{memory['metadata'].get('timestamp', 'Unknown')}] {memory['text']}"
+                        if formatted_memory not in personal_memories:
+                            personal_memories.append(formatted_memory)
+
+            logger.info(f"Found {len(personal_memories)} personal information memories")
+            return personal_memories
+
+        except Exception as e:
+            logger.error(f"Failed to search personal information: {e}")
+            return []

@@ -218,7 +218,7 @@ class RAGEnhancer:
             Enhanced context dictionary
         """
         try:
-            # Get basic context
+            # Get basic context (now includes enhanced memory retrieval)
             context = self.memory_manager.get_combined_context(query,
                                                               memory_context=max_context,
                                                               lesson_context=max_context)
@@ -238,11 +238,50 @@ class RAGEnhancer:
                         context['lessons'].extend(term_context['lessons'])
                         break
 
+            # Additional enhancement for personal information queries
+            if self._is_personal_info_query(query):
+                # Ensure we have some context even if semantic search fails
+                if len(context['conversations']) == 0:
+                    # Force retrieval of recent conversations
+                    recent_memories = self.memory_manager.get_recent_memories(n=10)
+                    for memory in recent_memories:
+                        if memory.get('metadata', {}).get('type') == 'conversation':
+                            formatted_memory = f"[{memory['metadata'].get('timestamp', 'Unknown')}] {memory['text']}"
+                            context['conversations'].append(formatted_memory)
+
+                logger.info(f"Personal info query detected - enhanced context with {len(context['conversations'])} memories")
+
             return context
 
         except Exception as e:
             logger.error(f"Failed to enhance query with RAG: {e}")
             return {"conversations": [], "lessons": []}
+
+    def _is_personal_info_query(self, query: str) -> bool:
+        """
+        Check if the query is asking for personal information
+
+        Args:
+            query: User query
+
+        Returns:
+            True if this is a personal information query
+        """
+        personal_patterns = [
+            r'\bwhat(?:\'|s| is)?\s+my\s+name\b',
+            r'\bwho\s+am\s+i\b',
+            r'\bdo\s+you\s+remember\s+me\b',
+            r'\bwhat(?:\'|s| is)?\s+my\s+(?:name|info|information)\b',
+            r'\bremember\s+my\s+name\b',
+            r'\babout\s+me\b',
+            r'\bmy\s+details?\b'
+        ]
+
+        query_lower = query.lower()
+        for pattern in personal_patterns:
+            if re.search(pattern, query_lower):
+                return True
+        return False
 
     def _extract_related_terms(self, query: str) -> List[str]:
         """

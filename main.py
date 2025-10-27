@@ -436,6 +436,14 @@ You have access to retrieved context from previous conversations and learned les
         lesson_context_str += "CRITICAL: Pay close attention to these lessons, especially corrections. They contain validated information that should override your general knowledge. Use corrections to avoid repeating mistakes and provide accurate definitions.\n"
         messages.append({"role": "system", "content": lesson_context_str})
 
+    # Enhanced instructions for personal information context
+    if context_data.get("conversations"):
+        # Check if any conversation contains personal information
+        has_personal_info = any("name" in conv.lower() or "call me" in conv.lower() or "i am" in conv.lower() for conv in context_data["conversations"])
+        if has_personal_info:
+            personal_info_instruction = "\nATTENTION: Previous conversations contain personal information about the user (name, preferences, etc.). Use this information to provide personalized responses and remember details about the user across sessions.\n"
+            messages.append({"role": "system", "content": personal_info_instruction})
+
         logger.info(f"Enhanced RAG applied: {len(context_data.get('conversations', []))} memories, {len(context_data.get('lessons', []))} lessons")
 
     # Add user message
