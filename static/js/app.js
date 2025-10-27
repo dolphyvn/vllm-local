@@ -332,9 +332,13 @@ class FinancialAssistantApp {
         try {
             // Upload files first if any
             let uploadedFiles = [];
+            console.log('Attached files before upload:', this.attachedFiles.length);
+            console.log('Attached files details:', this.attachedFiles.map(f => ({name: f.name, size: f.size})));
+
             if (this.attachedFiles.length > 0) {
                 this.showToast('Uploading files...', 'info');
                 uploadedFiles = await this.uploadFiles();
+                console.log('Uploaded files result:', uploadedFiles);
 
                 if (uploadedFiles.length === 0) {
                     this.showToast('Failed to upload files', 'error');
@@ -345,6 +349,7 @@ class FinancialAssistantApp {
 
             // Clear files after upload
             this.clearFiles();
+            console.log('Files cleared, continuing with message processing');
 
             // Create assistant message that will be updated with streaming content
             const messageId = this.addStreamingMessage('assistant', '');
@@ -1008,12 +1013,15 @@ class FinancialAssistantApp {
         const messageInput = document.getElementById('messageInput');
         const charCount = document.getElementById('charCount');
         charCount.textContent = messageInput.value.length;
+        this.toggleSendButton();
     }
 
     toggleSendButton() {
         const messageInput = document.getElementById('messageInput');
         const sendBtn = document.getElementById('sendBtn');
-        sendBtn.disabled = !messageInput.value.trim() || this.isTyping;
+        const hasText = messageInput.value.trim();
+        const hasFiles = this.attachedFiles.length > 0;
+        sendBtn.disabled = (!hasText && !hasFiles) || this.isTyping;
     }
 
     autoResizeTextarea() {
@@ -1349,7 +1357,7 @@ class FinancialAssistantApp {
             preview.remove();
         }
 
-        // Update file info
+        // Update file info (this already calls toggleSendButton)
         this.updateFileInfo();
 
         // Hide upload area if no files
@@ -1368,6 +1376,9 @@ class FinancialAssistantApp {
         } else {
             fileInfo.style.display = 'none';
         }
+
+        // Update send button state
+        this.toggleSendButton();
     }
 
     async uploadFiles() {
