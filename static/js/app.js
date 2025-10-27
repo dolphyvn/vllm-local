@@ -760,6 +760,9 @@ class FinancialAssistantApp {
         try {
             console.log('Checking system health...');
 
+            // Wait for DOM to be ready if needed
+            await this.waitForDOMReady();
+
             // Check if DOM elements are ready
             const modelDropdown = document.getElementById('modelDropdown');
             const memoryStatus = document.getElementById('memoryStatus');
@@ -770,6 +773,12 @@ class FinancialAssistantApp {
                 memoryStatus: !!memoryStatus,
                 apiStatus: !!apiStatus
             });
+
+            if (!memoryStatus || !apiStatus) {
+                console.warn('Critical DOM elements not found, retrying in 1 second...');
+                setTimeout(() => this.checkSystemHealth(), 1000);
+                return;
+            }
 
             const response = await this.apiCall('/health', null, 'GET');
             console.log('Health response:', response);
@@ -808,34 +817,52 @@ class FinancialAssistantApp {
 
         } catch (error) {
             console.error('Health check error:', error);
-            this.updateSystemStatus('error', 'Offline');
+            // Don't call updateSystemStatus here as it might also fail
+            console.error('Error details:', error.message);
+        }
+    }
 
-            // Fallback: Try to set basic status
+    async waitForDOMReady() {
+        // Simple wait function for DOM elements
+        let attempts = 0;
+        const maxAttempts = 10;
+
+        while (attempts < maxAttempts) {
+            const memoryStatus = document.getElementById('memoryStatus');
+            const apiStatus = document.getElementById('apiStatus');
+
+            if (memoryStatus && apiStatus) {
+                console.log('DOM elements are ready');
+                return;
+            }
+
+            console.log(`Waiting for DOM elements... attempt ${attempts + 1}/${maxAttempts}`);
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
+        }
+
+        console.warn('DOM elements not found after maximum attempts');
+    }
+
+    updateSystemStatus(status, message) {
+        try {
             const memoryStatus = document.getElementById('memoryStatus');
             const apiStatus = document.getElementById('apiStatus');
 
             if (memoryStatus) {
-                memoryStatus.textContent = 'Error';
-                memoryStatus.className = 'status-value error';
+                memoryStatus.textContent = message;
+            } else {
+                console.warn('memoryStatus element not found');
             }
+
             if (apiStatus) {
-                apiStatus.textContent = 'Error';
-                apiStatus.className = 'status-value error';
+                apiStatus.textContent = message;
+                apiStatus.className = `status-value ${status}`;
+            } else {
+                console.warn('apiStatus element not found');
             }
-        }
-    }
-
-    updateSystemStatus(status, message) {
-        const memoryStatus = document.getElementById('memoryStatus');
-        const apiStatus = document.getElementById('apiStatus');
-
-        if (memoryStatus) {
-            memoryStatus.textContent = message;
-        }
-
-        if (apiStatus) {
-            apiStatus.textContent = message;
-            apiStatus.className = `status-value ${status}`;
+        } catch (error) {
+            console.error('Error in updateSystemStatus:', error);
         }
     }
 
