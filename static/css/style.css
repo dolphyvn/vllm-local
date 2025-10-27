@@ -592,6 +592,129 @@ body {
     outline: none;
 }
 
+/* File Upload Styles */
+.input-content {
+    display: flex;
+    align-items: flex-end;
+    flex: 1;
+    gap: 8px;
+}
+
+.file-upload-btn {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 8px 12px;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    height: 40px;
+}
+
+.file-upload-btn:hover {
+    background: var(--bg-tertiary);
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.file-upload-area {
+    margin-top: 8px;
+    padding: 12px;
+    background: var(--bg-secondary);
+    border-radius: var(--border-radius);
+    border: 1px dashed var(--border-color);
+}
+
+.file-preview-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.file-preview {
+    display: flex;
+    align-items: center;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px 12px;
+    max-width: 200px;
+    position: relative;
+}
+
+.file-preview-image {
+    max-width: 80px;
+    max-height: 80px;
+    border-radius: 6px;
+    object-fit: cover;
+}
+
+.file-preview-info {
+    flex: 1;
+    min-width: 0;
+    margin-left: 8px;
+}
+
+.file-preview-name {
+    font-size: 12px;
+    color: var(--text-primary);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.file-preview-size {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+.file-preview-remove {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background: var(--error);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    transition: var(--transition);
+}
+
+.file-preview-remove:hover {
+    background: #b91c1c;
+    transform: scale(1.1);
+}
+
+.file-info {
+    color: var(--text-secondary);
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.input-info {
+    max-width: 800px;
+    margin: 8px auto 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
 #messageInput::placeholder {
     color: var(--text-muted);
 }

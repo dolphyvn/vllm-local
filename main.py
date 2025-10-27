@@ -7,17 +7,20 @@ import json
 import asyncio
 import requests
 import aiohttp
+import base64
+import mimetypes
 from typing import Dict, Any, List, Optional
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, StreamingResponse
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.uploads import UploadFile
 from pydantic import BaseModel
 import logging
 from datetime import datetime
 import os
+import aiofiles
 import uuid
 import queue
 import threading
@@ -116,6 +119,7 @@ class StreamChatRequest(BaseModel):
     message: str
     model: str = config.get("default_model", "phi3")
     memory_context: int = 3
+    files: Optional[List[Dict[str, Any]]] = None
 
 class MemorizeRequest(BaseModel):
     key: str
@@ -535,8 +539,31 @@ async def chat_stream_endpoint(request: StreamChatRequest, http_request: Request
             # Enhanced RAG context retrieval
             context_data = rag_enhancer.enhance_query_with_rag(request.message, max_context=request.memory_context)
 
-            # Build contextual prompt with enhanced memory
-            messages = build_enhanced_contextual_prompt(request.message, context_data)
+            # Add file information to context if files are provided
+            if request.files:
+                file_context = "\n\n📎 ATTACHED FILES:\n"
+                for i, file in enumerate(request.files, 1):
+                    file_context += f"File {i}: {file['name']} ({file['content_type']}, {file['size']} bytes)\n"
+                    if file.get('content'):
+                        if file['content']['type'] == 'text':
+                            file_context += f"Content: {file['content']['content'][:500]}...\n"
+                        elif file['content']['type'] == 'image':
+                            file_context += f"Image uploaded ({file['content']['format']})\n"
+                        else:
+                            file_context += f"Document uploaded for analysis\n"
+
+                # Add file context to the message
+                enhanced_message = f"{request.message}\n\n{file_context}"
+
+                # Update context with file information
+                if 'conversations' not in context_data:
+                    context_data['conversations'] = []
+                context_data['conversations'].append(f"[File Upload] User uploaded {len(request.files)} file(s)")
+            else:
+                enhanced_message = request.message
+
+            # Build contextual prompt with enhanced memory and file content
+            messages = build_enhanced_contextual_prompt(enhanced_message, context_data)
 
             # Send initial chunk with metadata
             initial_chunk = {
@@ -931,6 +958,92 @@ async def switch_model_endpoint(request: Request, model_name: str = None):
     except Exception as e:
         logger.error(f"Failed to switch model: {e}")
         return {"success": False, "message": f"Failed to switch model: {str(e)}"}
+
+@app.post("/api/upload", response_model=Dict[str, Any])
+async def upload_file(request: Request, file: UploadFile = File(...)):
+    """
+    Upload a file and return its content for AI processing
+    Args:
+        request: FastAPI request object for authentication
+        file: Uploaded file
+    Returns:
+        Dictionary with file information and content
+    """
+    # Check authentication
+    get_current_user(auth_manager, request)
+
+    try:
+        # Create uploads directory if it doesn't exist
+        uploads_dir = "uploads"
+        os.makedirs(uploads_dir, exist_ok=True)
+
+        # Generate unique filename
+        file_id = str(uuid.uuid4())
+        file_extension = os.path.splitext(file.filename)[1]
+        safe_filename = f"{file_id}{file_extension}"
+        file_path = os.path.join(uploads_dir, safe_filename)
+
+        # Save file to disk
+        async with aiofiles.open(file_path, 'wb') as f:
+            content = await file.read()
+            await f.write(content)
+
+        # Determine file type and process content
+        file_content = None
+        if file.content_type.startswith('image/'):
+            # For images, encode as base64 and store the reference
+            file_content = {
+                "type": "image",
+                "format": file.content_type,
+                "size": len(content),
+                "encoding": "base64",
+                "data": base64.b64encode(content).decode('utf-8')
+            }
+        elif file.content_type.startswith('text/') or file.filename.endswith('.txt'):
+            # For text files, read the content directly
+            try:
+                text_content = content.decode('utf-8')
+                file_content = {
+                    "type": "text",
+                    "format": file.content_type,
+                    "size": len(text_content),
+                    "content": text_content[:10000]  # Limit to 10k characters
+                }
+            except UnicodeDecodeError:
+                file_content = {
+                    "type": "binary",
+                    "format": file.content_type,
+                    "size": len(content),
+                    "note": "Binary file - content not displayed"
+                }
+        else:
+            # For other files (PDF, etc.), provide metadata
+            file_content = {
+                "type": "document",
+                "format": file.content_type,
+                "size": len(content),
+                "note": f"Document file uploaded for processing"
+            }
+
+        result = {
+            "success": True,
+            "file_id": file_id,
+            "filename": file.filename,
+            "content_type": file.content_type,
+            "size": len(content),
+            "url": f"/api/files/{file_id}",
+            "content": file_content
+        }
+
+        logger.info(f"File uploaded successfully: {file.filename} ({len(content)} bytes)")
+        return result
+
+    except Exception as e:
+        logger.error(f"Failed to upload file: {e}")
+        return {
+            "success": False,
+            "message": f"Failed to upload file: {str(e)}"
+        }
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page_endpoint(request: Request):

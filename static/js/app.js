@@ -7,6 +7,7 @@ class FinancialAssistantApp {
         this.isTyping = false;
         this.theme = localStorage.getItem('theme') || 'light';
         this.isAuthenticated = false;
+        this.attachedFiles = [];
 
         this.init();
     }
@@ -287,13 +288,27 @@ class FinancialAssistantApp {
                 }
             });
         }
+
+        // File upload functionality
+        const fileUploadBtn = document.getElementById('fileUploadBtn');
+        const fileInput = document.getElementById('fileInput');
+
+        if (fileUploadBtn && fileInput) {
+            fileUploadBtn.addEventListener('click', () => {
+                fileInput.click();
+            });
+
+            fileInput.addEventListener('change', (e) => {
+                this.handleFileSelect(e.target.files);
+            });
+        }
     }
 
     async sendMessage() {
         const messageInput = document.getElementById('messageInput');
         const message = messageInput.value.trim();
 
-        if (!message || this.isTyping) return;
+        if (!message && this.attachedFiles.length === 0) return;
 
         // Hide welcome message
         this.hideWelcomeMessage();
@@ -315,6 +330,22 @@ class FinancialAssistantApp {
         this.isTyping = true;
 
         try {
+            // Upload files first if any
+            let uploadedFiles = [];
+            if (this.attachedFiles.length > 0) {
+                this.showToast('Uploading files...', 'info');
+                uploadedFiles = await this.uploadFiles();
+
+                if (uploadedFiles.length === 0) {
+                    this.showToast('Failed to upload files', 'error');
+                    this.isTyping = false;
+                    return;
+                }
+            }
+
+            // Clear files after upload
+            this.clearFiles();
+
             // Create assistant message that will be updated with streaming content
             const messageId = this.addStreamingMessage('assistant', '');
 
@@ -327,14 +358,21 @@ class FinancialAssistantApp {
                 headers['Authorization'] = `Bearer ${sessionToken}`;
             }
 
+            const requestBody = {
+                message: message,
+                model: 'phi3',
+                memory_context: 3
+            };
+
+            // Include uploaded files in the request
+            if (uploadedFiles.length > 0) {
+                requestBody.files = uploadedFiles;
+            }
+
             const response = await fetch(`${this.apiBaseUrl}/chat/stream`, {
                 method: 'POST',
                 headers: headers,
-                body: JSON.stringify({
-                    message: message,
-                    model: 'phi3',
-                    memory_context: 3
-                })
+                body: JSON.stringify(requestBody)
             });
 
             if (!response.ok) {
@@ -1193,6 +1231,199 @@ class FinancialAssistantApp {
                 switchBtn.disabled = false;
             }
         }
+    }
+
+    handleFileSelect(files) {
+        if (!files || files.length === 0) return;
+
+        const fileUploadArea = document.getElementById('fileUploadArea');
+        const filePreviewContainer = document.getElementById('filePreviewContainer');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileCount = document.getElementById('fileCount');
+
+        // Show upload area
+        fileUploadArea.style.display = 'block';
+
+        // Process each file
+        Array.from(files).forEach(file => {
+            const fileId = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
+            // Create file object
+            const fileObj = {
+                id: fileId,
+                file: file,
+                name: file.name,
+                size: file.size,
+                type: file.type,
+                lastModified: file.lastModified
+            };
+
+            // Add to attached files
+            this.attachedFiles.push(fileObj);
+
+            // Create preview element
+            const preview = this.createFilePreview(fileObj);
+            filePreviewContainer.appendChild(preview);
+        });
+
+        // Update file info
+        this.updateFileInfo();
+
+        // Clear file input
+        document.getElementById('fileInput').value = '';
+    }
+
+    createFilePreview(fileObj) {
+        const preview = document.createElement('div');
+        preview.className = 'file-preview';
+        preview.dataset.fileId = fileObj.id;
+
+        if (fileObj.type.startsWith('image/')) {
+            // Create image preview
+            const img = document.createElement('img');
+            img.className = 'file-preview-image';
+            img.src = URL.createObjectURL(fileObj.file);
+            img.onload = () => URL.revokeObjectURL(img.src); // Clean up memory
+            preview.appendChild(img);
+        } else {
+            // Create file icon
+            const icon = document.createElement('div');
+            icon.className = 'file-preview-icon';
+            icon.innerHTML = this.getFileIcon(fileObj.type);
+            icon.style.fontSize = '24px';
+            icon.style.color = '#666';
+            preview.appendChild(icon);
+        }
+
+        // Add file info
+        const info = document.createElement('div');
+        info.className = 'file-preview-info';
+
+        const name = document.createElement('div');
+        name.className = 'file-preview-name';
+        name.textContent = fileObj.name;
+        info.appendChild(name);
+
+        const size = document.createElement('div');
+        size.className = 'file-preview-size';
+        size.textContent = this.formatFileSize(fileObj.size);
+        info.appendChild(size);
+
+        preview.appendChild(info);
+
+        // Add remove button
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'file-preview-remove';
+        removeBtn.innerHTML = '×';
+        removeBtn.onclick = () => this.removeFile(fileObj.id);
+        preview.appendChild(removeBtn);
+
+        return preview;
+    }
+
+    getFileIcon(fileType) {
+        if (fileType.includes('pdf')) return '📄';
+        if (fileType.includes('text')) return '📝';
+        if (fileType.includes('csv') || fileType.includes('excel')) return '📊';
+        if (fileType.includes('word') || fileType.includes('document')) return '📄';
+        if (fileType.includes('image')) return '🖼️';
+        if (fileType.includes('zip') || fileType.includes('rar')) return '📦';
+        return '📎';
+    }
+
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    removeFile(fileId) {
+        // Remove from attached files
+        this.attachedFiles = this.attachedFiles.filter(file => file.id !== fileId);
+
+        // Remove preview element
+        const preview = document.querySelector(`[data-file-id="${fileId}"]`);
+        if (preview) {
+            preview.remove();
+        }
+
+        // Update file info
+        this.updateFileInfo();
+
+        // Hide upload area if no files
+        if (this.attachedFiles.length === 0) {
+            document.getElementById('fileUploadArea').style.display = 'none';
+        }
+    }
+
+    updateFileInfo() {
+        const fileInfo = document.getElementById('fileInfo');
+        const fileCount = document.getElementById('fileCount');
+
+        if (this.attachedFiles.length > 0) {
+            fileInfo.style.display = 'flex';
+            fileCount.textContent = this.attachedFiles.length;
+        } else {
+            fileInfo.style.display = 'none';
+        }
+    }
+
+    async uploadFiles() {
+        if (this.attachedFiles.length === 0) return [];
+
+        const uploadedFiles = [];
+
+        for (const fileObj of this.attachedFiles) {
+            try {
+                const formData = new FormData();
+                formData.append('file', fileObj.file);
+
+                const response = await fetch(`${this.apiBaseUrl}/api/upload`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('session_token')}`
+                    },
+                    body: formData
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    uploadedFiles.push({
+                        name: fileObj.name,
+                        type: fileObj.type,
+                        size: fileObj.size,
+                        url: result.url,
+                        content: result.content,
+                        file_id: result.file_id
+                    });
+                } else {
+                    console.error(`Failed to upload ${fileObj.name}`);
+                }
+            } catch (error) {
+                console.error(`Error uploading ${fileObj.name}:`, error);
+            }
+        }
+
+        return uploadedFiles;
+    }
+
+    clearFiles() {
+        // Clear attached files
+        this.attachedFiles = [];
+
+        // Clear preview container
+        const filePreviewContainer = document.getElementById('filePreviewContainer');
+        if (filePreviewContainer) {
+            filePreviewContainer.innerHTML = '';
+        }
+
+        // Hide upload area
+        document.getElementById('fileUploadArea').style.display = 'none';
+
+        // Update file info
+        this.updateFileInfo();
     }
 }
 
