@@ -543,30 +543,41 @@ async def chat_stream_endpoint(request: StreamChatRequest, http_request: Request
                 file_context = "\n\n📎 ATTACHED FILES:\n"
                 file_analysis_prompts = []
 
-                for i, file in enumerate(request.files, 1):
-                    file_context += f"File {i}: {file['name']} ({file['content_type']}, {file['size']} bytes)\n"
-                    if file.get('content'):
-                        if file['content']['type'] == 'text':
-                            file_context += f"Content: {file['content']['content'][:500]}...\n"
-                            file_analysis_prompts.append(f"Please analyze the text file '{file['name']}' and provide insights about its content.")
-                        elif file['content']['type'] == 'image':
-                            file_context += f"Image uploaded ({file['content']['format']})\n"
-                            file_analysis_prompts.append(f"Please analyze the image '{file['name']}' and describe what you see.")
-                        else:
-                            file_context += f"Document uploaded for analysis\n"
-                            file_analysis_prompts.append(f"Please analyze the document '{file['name']}' and provide a summary or key insights.")
+                try:
+                    for i, file in enumerate(request.files, 1):
+                        # Safely access file fields with fallbacks
+                        file_name = file.get('name', 'Unknown file')
+                        file_content_type = file.get('content_type', file.get('type', 'unknown'))
+                        file_size = file.get('size', 0)
 
-                # Add explicit analysis instruction
-                if file_analysis_prompts:
-                    analysis_instruction = "\n\nIMPORTANT: Please acknowledge and analyze the uploaded file(s) above. The user specifically wants you to examine and comment on the file content they've shared."
-                    enhanced_message = f"{request.message}{file_context}{analysis_instruction}"
-                else:
-                    enhanced_message = f"{request.message}\n\n{file_context}"
+                        file_context += f"File {i}: {file_name} ({file_content_type}, {file_size} bytes)\n"
+                        if file.get('content'):
+                            content = file['content']
+                            if content['type'] == 'text':
+                                file_context += f"Content: {content['content'][:500]}...\n"
+                                file_analysis_prompts.append(f"Please analyze the text file '{file_name}' and provide insights about its content.")
+                            elif content['type'] == 'image':
+                                file_context += f"Image uploaded ({content.get('format', 'unknown format')})\n"
+                                file_analysis_prompts.append(f"Please analyze the image '{file_name}' and describe what you see.")
+                            else:
+                                file_context += f"Document uploaded for analysis\n"
+                                file_analysis_prompts.append(f"Please analyze the document '{file_name}' and provide a summary or key insights.")
 
-                # Update context with file information
-                if 'conversations' not in context_data:
-                    context_data['conversations'] = []
-                context_data['conversations'].append(f"[File Upload] User uploaded {len(request.files)} file(s): {', '.join([f['name'] for f in request.files])}")
+                    # Add explicit analysis instruction
+                    if file_analysis_prompts:
+                        analysis_instruction = "\n\nIMPORTANT: Please acknowledge and analyze the uploaded file(s) above. The user specifically wants you to examine and comment on the file content they've shared."
+                        enhanced_message = f"{request.message}{file_context}{analysis_instruction}"
+                    else:
+                        enhanced_message = f"{request.message}\n\n{file_context}"
+
+                    # Update context with file information
+                    if 'conversations' not in context_data:
+                        context_data['conversations'] = []
+                    context_data['conversations'].append(f"[File Upload] User uploaded {len(request.files)} file(s): {', '.join([f.get('name', 'Unknown file') for f in request.files])}")
+                except Exception as e:
+                    logger.error(f"Error processing file attachments: {e}")
+                    # Fallback to original message if file processing fails
+                    enhanced_message = request.message
             else:
                 enhanced_message = request.message
 

@@ -1403,7 +1403,8 @@ class FinancialAssistantApp {
                         size: fileObj.size,
                         url: result.url,
                         content: result.content,
-                        file_id: result.file_id
+                        file_id: result.file_id,
+                        content_type: result.content_type
                     });
                 } else {
                     console.error(`Failed to upload ${fileObj.name}`);
