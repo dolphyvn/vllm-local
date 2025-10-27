@@ -332,13 +332,10 @@ class FinancialAssistantApp {
         try {
             // Upload files first if any
             let uploadedFiles = [];
-            console.log('Attached files before upload:', this.attachedFiles.length);
-            console.log('Attached files details:', this.attachedFiles.map(f => ({name: f.name, size: f.size})));
 
             if (this.attachedFiles.length > 0) {
                 this.showToast('Uploading files...', 'info');
                 uploadedFiles = await this.uploadFiles();
-                console.log('Uploaded files result:', uploadedFiles);
 
                 if (uploadedFiles.length === 0) {
                     this.showToast('Failed to upload files', 'error');
@@ -349,7 +346,6 @@ class FinancialAssistantApp {
 
             // Clear files after upload
             this.clearFiles();
-            console.log('Files cleared, continuing with message processing');
 
             // Create assistant message that will be updated with streaming content
             const messageId = this.addStreamingMessage('assistant', '');

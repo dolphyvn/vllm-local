@@ -541,23 +541,32 @@ async def chat_stream_endpoint(request: StreamChatRequest, http_request: Request
             # Add file information to context if files are provided
             if request.files:
                 file_context = "\n\n📎 ATTACHED FILES:\n"
+                file_analysis_prompts = []
+
                 for i, file in enumerate(request.files, 1):
                     file_context += f"File {i}: {file['name']} ({file['content_type']}, {file['size']} bytes)\n"
                     if file.get('content'):
                         if file['content']['type'] == 'text':
                             file_context += f"Content: {file['content']['content'][:500]}...\n"
+                            file_analysis_prompts.append(f"Please analyze the text file '{file['name']}' and provide insights about its content.")
                         elif file['content']['type'] == 'image':
                             file_context += f"Image uploaded ({file['content']['format']})\n"
+                            file_analysis_prompts.append(f"Please analyze the image '{file['name']}' and describe what you see.")
                         else:
                             file_context += f"Document uploaded for analysis\n"
+                            file_analysis_prompts.append(f"Please analyze the document '{file['name']}' and provide a summary or key insights.")
 
-                # Add file context to the message
-                enhanced_message = f"{request.message}\n\n{file_context}"
+                # Add explicit analysis instruction
+                if file_analysis_prompts:
+                    analysis_instruction = "\n\nIMPORTANT: Please acknowledge and analyze the uploaded file(s) above. The user specifically wants you to examine and comment on the file content they've shared."
+                    enhanced_message = f"{request.message}{file_context}{analysis_instruction}"
+                else:
+                    enhanced_message = f"{request.message}\n\n{file_context}"
 
                 # Update context with file information
                 if 'conversations' not in context_data:
                     context_data['conversations'] = []
-                context_data['conversations'].append(f"[File Upload] User uploaded {len(request.files)} file(s)")
+                context_data['conversations'].append(f"[File Upload] User uploaded {len(request.files)} file(s): {', '.join([f['name'] for f in request.files])}")
             else:
                 enhanced_message = request.message
 
