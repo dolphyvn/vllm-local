@@ -238,7 +238,7 @@ class RAGEnhancer:
                         context['lessons'].extend(term_context['lessons'])
                         break
 
-            # Additional enhancement for personal information queries
+            # Additional enhancement for personal information queries and cross-model continuity
             if self._is_personal_info_query(query):
                 # Ensure we have some context even if semantic search fails
                 if len(context['conversations']) == 0:
@@ -250,6 +250,15 @@ class RAGEnhancer:
                             context['conversations'].append(formatted_memory)
 
                 logger.info(f"Personal info query detected - enhanced context with {len(context['conversations'])} memories")
+            else:
+                # For non-personal queries, also check if we need cross-model continuity
+                # If very few conversations found, search more broadly for continuity
+                if len(context['conversations']) < 2:
+                    logger.info("Limited conversation context found, searching for cross-model continuity...")
+                    # Force broader search to ensure continuity across model switches
+                    personal_memories = self.memory_manager.search_personal_information()
+                    context['conversations'].extend(personal_memories[:3])  # Add up to 3 personal memories
+                    logger.info(f"Added {min(3, len(personal_memories))} continuity memories for cross-model context")
 
             return context
 

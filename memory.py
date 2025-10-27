@@ -526,15 +526,25 @@ class MemoryManager:
             # Format lesson memories as text
             lesson_texts = [lesson["document"] for lesson in lesson_memories]
 
-            # 5. Special handling for personal information queries
+            # 5. Special handling for personal information queries AND model switches
             personal_info_keywords = ['name', 'who am i', 'my name', 'remember me', 'about me']
             query_lower = query.lower()
-            if any(keyword in query_lower for keyword in personal_info_keywords):
+
+            # Always search for personal info in new model sessions to ensure continuity
+            is_personal_query = any(keyword in query_lower for keyword in personal_info_keywords)
+
+            # Also search for personal info if this is a new session (limited recent memories)
+            has_recent_memories = len(conversation_memories) > 0
+
+            if is_personal_query or not has_recent_memories:
                 # Search for personal information in memories with broader criteria
                 personal_memories = self.search_personal_information()
                 for memory in personal_memories:
                     if memory not in conversation_memories:
-                        conversation_memories.insert(0, memory)  # Prioritize personal info
+                        if is_personal_query:
+                            conversation_memories.insert(0, memory)  # Prioritize personal info for personal queries
+                        else:
+                            conversation_memories.append(memory)  # Add personal info for continuity
 
             logger.info(f"Retrieved combined context: {len(conversation_memories)} conversations, {len(lesson_texts)} lessons")
 
@@ -568,7 +578,9 @@ class MemoryManager:
                 "name is",
                 "remember that I",
                 "I live in",
-                "I work as"
+                "I work as",
+                "introduce myself",
+                "my real name"
             ]
 
             personal_memories = []
@@ -580,18 +592,30 @@ class MemoryManager:
 
             # Also search for conversations where user introduced themselves
             # Look for recent conversations that might contain personal info
-            recent_memories = self.get_recent_memories(n=20)
+            recent_memories = self.get_recent_memories(n=50)  # Increased search scope
             for memory in recent_memories:
                 if memory.get('metadata', {}).get('type') == 'conversation':
                     text = memory['text'].lower()
                     # Check if this contains personal information
-                    if any(pattern in text for pattern in ['my name is', 'i am', 'i\'m', 'call me']):
+                    if any(pattern in text for pattern in [
+                        'my name is', 'i am', 'i\'m', 'call me', 'dolphy', 'my real name'
+                    ]):
                         formatted_memory = f"[{memory['metadata'].get('timestamp', 'Unknown')}] {memory['text']}"
                         if formatted_memory not in personal_memories:
                             personal_memories.append(formatted_memory)
 
+            # Additional search: look for any conversation that might have personal info
+            # by searching for the most recent user conversations
+            all_memories = self.get_memory("", n=100)  # Get a broad set
+            for memory in all_memories:
+                if "conversation:" in memory:
+                    text_lower = memory.lower()
+                    if any(phrase in text_lower for phrase in ['name is', 'call me', 'i am', 'i\'m']):
+                        if memory not in personal_memories:
+                            personal_memories.append(memory)
+
             logger.info(f"Found {len(personal_memories)} personal information memories")
-            return personal_memories
+            return personal_memories[:10]  # Limit to most recent/relevant
 
         except Exception as e:
             logger.error(f"Failed to search personal information: {e}")
