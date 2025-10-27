@@ -871,6 +871,59 @@ async def list_models_endpoint():
         logger.error(f"Failed to list models: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/models/switch", response_model=Dict[str, Any])
+async def switch_model_endpoint(request: Request, model_name: str = None):
+    """
+    Switch to a different model
+    Args:
+        request: FastAPI request object for authentication
+        model_name: New model name (can be passed in form data)
+    Returns:
+        Dictionary with switch result
+    """
+    # Check authentication
+    get_current_user(auth_manager, request)
+
+    try:
+        # Get model name from form data or JSON
+        if not model_name:
+            if request.headers.get("content-type", "").startswith("application/json"):
+                data = await request.json()
+                model_name = data.get("model_name")
+            else:
+                form_data = await request.form()
+                model_name = form_data.get("model_name")
+
+        if not model_name:
+            return {"success": False, "message": "Model name is required"}
+
+        # Check if model is available
+        available_models = ollama_client.list_models()
+        if model_name not in available_models:
+            return {
+                "success": False,
+                "message": f"Model '{model_name}' is not available. Available models: {', '.join(available_models[:5])}"
+            }
+
+        # Update configuration
+        config["default_model"] = model_name
+
+        # Update Ollama client
+        global ollama_client
+        ollama_client.model = model_name
+
+        logger.info(f"Switched to model: {model_name}")
+        return {
+            "success": True,
+            "message": f"Successfully switched to model: {model_name}",
+            "new_model": model_name,
+            "available_models": available_models
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to switch model: {e}")
+        return {"success": False, "message": f"Failed to switch model: {str(e)}"}
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_page_endpoint(request: Request):
     """

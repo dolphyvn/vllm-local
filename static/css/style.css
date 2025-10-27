@@ -151,6 +151,79 @@ body {
     color: var(--error);
 }
 
+/* Model Dropdown Styles */
+.model-dropdown {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 12px;
+    padding: 2px 6px;
+    min-width: 120px;
+    max-width: 150px;
+    cursor: pointer;
+    transition: var(--transition);
+    outline: none;
+}
+
+.model-dropdown:hover {
+    border-color: var(--accent);
+}
+
+.model-dropdown:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.2);
+}
+
+.model-switch-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px 6px;
+    margin-left: 4px;
+    border-radius: 4px;
+    transition: var(--transition);
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+}
+
+.model-switch-btn:hover {
+    background: var(--bg-secondary);
+    color: var(--accent);
+}
+
+.model-switch-btn.loading {
+    animation: spin 1s linear infinite;
+}
+
+.model-switch-btn.success {
+    color: var(--success);
+}
+
+.model-switch-btn.error {
+    color: var(--error);
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Adjust status item layout for model dropdown */
+.status-item:has(.model-dropdown) {
+    flex-wrap: nowrap;
+    gap: 4px;
+}
+
+.status-item:has(.model-dropdown) .status-label {
+    flex-shrink: 0;
+}
+
 /* Memory Section */
 .memory-section, .recent-memories {
     margin-bottom: 24px;

@@ -33,7 +33,12 @@
                     <div class="status-content">
                         <div class="status-item">
                             <span class="status-label">Model:</span>
-                            <span class="status-value" id="modelStatus">Loading...</span>
+                            <select class="status-value model-dropdown" id="modelDropdown">
+                                <option value="">Loading models...</option>
+                            </select>
+                            <button class="model-switch-btn" id="modelSwitchBtn" title="Switch Model">
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
                         </div>
                         <div class="status-item">
                             <span class="status-label">Memory:</span>

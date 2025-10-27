@@ -257,6 +257,25 @@ class FinancialAssistantApp {
                 document.getElementById('sidebar').classList.remove('open');
             }
         });
+
+        // Model switching
+        const modelSwitchBtn = document.getElementById('modelSwitchBtn');
+        const modelDropdown = document.getElementById('modelDropdown');
+
+        if (modelSwitchBtn) {
+            modelSwitchBtn.addEventListener('click', () => this.switchModel());
+        }
+
+        if (modelDropdown) {
+            modelDropdown.addEventListener('change', () => {
+                // Enable switch button only when model is different from current
+                const currentModel = modelDropdown.value;
+                // Auto-switch when selection changes
+                if (currentModel) {
+                    this.switchModel();
+                }
+            });
+        }
     }
 
     async sendMessage() {
@@ -746,17 +765,19 @@ class FinancialAssistantApp {
             }
 
             // Update individual status fields
-            const modelStatus = document.getElementById('modelStatus');
+            const modelDropdown = document.getElementById('modelDropdown');
             const memoryStatus = document.getElementById('memoryStatus');
             const apiStatus = document.getElementById('apiStatus');
 
+            // Load available models and update dropdown
+            await this.loadModels();
+
             // Model status
             if (response.model) {
-                modelStatus.textContent = response.model;
-                modelStatus.className = 'status-value online';
-            } else {
-                modelStatus.textContent = 'Unknown';
-                modelStatus.className = 'status-value offline';
+                // Set dropdown to current model
+                if (modelDropdown) {
+                    modelDropdown.value = response.model;
+                }
             }
 
             // Memory status
@@ -781,12 +802,17 @@ class FinancialAssistantApp {
     }
 
     updateSystemStatus(status, message) {
-        document.getElementById('modelStatus').textContent = message;
-        document.getElementById('memoryStatus').textContent = message;
-
+        const memoryStatus = document.getElementById('memoryStatus');
         const apiStatus = document.getElementById('apiStatus');
-        apiStatus.textContent = message;
-        apiStatus.className = `status-value ${status}`;
+
+        if (memoryStatus) {
+            memoryStatus.textContent = message;
+        }
+
+        if (apiStatus) {
+            apiStatus.textContent = message;
+            apiStatus.className = `status-value ${status}`;
+        }
     }
 
     newChat() {
@@ -931,6 +957,12 @@ class FinancialAssistantApp {
             }
         };
 
+        // Add authorization header if available
+        const sessionToken = localStorage.getItem('session_token');
+        if (sessionToken) {
+            options.headers['Authorization'] = `Bearer ${sessionToken}`;
+        }
+
         if (data) {
             options.body = JSON.stringify(data);
         }
@@ -950,6 +982,102 @@ class FinancialAssistantApp {
 
     hideLoading() {
         document.getElementById('loadingOverlay').classList.remove('show');
+    }
+
+    async loadModels() {
+        try {
+            const response = await this.apiCall('/models', null, 'GET');
+            const modelDropdown = document.getElementById('modelDropdown');
+
+            if (response.available_models && modelDropdown) {
+                // Clear existing options
+                modelDropdown.innerHTML = '';
+
+                // Add available models as options
+                response.available_models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model;
+                    option.textContent = model;
+                    if (model === response.current_model) {
+                        option.selected = true;
+                    }
+                    modelDropdown.appendChild(option);
+                });
+
+                console.log(`Loaded ${response.available_models.length} models`);
+            }
+        } catch (error) {
+            console.error('Failed to load models:', error);
+            const modelDropdown = document.getElementById('modelDropdown');
+            if (modelDropdown) {
+                modelDropdown.innerHTML = '<option value="">Failed to load models</option>';
+            }
+        }
+    }
+
+    async switchModel() {
+        const modelDropdown = document.getElementById('modelDropdown');
+        const switchBtn = document.getElementById('modelSwitchBtn');
+
+        if (!modelDropdown || !modelDropdown.value) {
+            this.showToast('Please select a model', 'error');
+            return;
+        }
+
+        const selectedModel = modelDropdown.value;
+
+        // Show loading state
+        if (switchBtn) {
+            switchBtn.classList.add('loading');
+            switchBtn.disabled = true;
+        }
+
+        try {
+            const response = await this.apiCall('/models/switch', { model_name: selectedModel });
+
+            if (response.success) {
+                this.showToast(response.message, 'success');
+
+                // Update button state
+                if (switchBtn) {
+                    switchBtn.classList.remove('loading');
+                    switchBtn.classList.add('success');
+                    setTimeout(() => {
+                        switchBtn.classList.remove('success');
+                    }, 2000);
+                }
+
+                console.log(`Successfully switched to model: ${selectedModel}`);
+            } else {
+                this.showToast(response.message, 'error');
+
+                // Reset button state
+                if (switchBtn) {
+                    switchBtn.classList.remove('loading');
+                    switchBtn.classList.add('error');
+                    setTimeout(() => {
+                        switchBtn.classList.remove('error');
+                    }, 2000);
+                }
+            }
+        } catch (error) {
+            console.error('Failed to switch model:', error);
+            this.showToast('Failed to switch model', 'error');
+
+            // Reset button state
+            if (switchBtn) {
+                switchBtn.classList.remove('loading');
+                switchBtn.classList.add('error');
+                setTimeout(() => {
+                    switchBtn.classList.remove('error');
+                }, 2000);
+            }
+        } finally {
+            // Re-enable button
+            if (switchBtn) {
+                switchBtn.disabled = false;
+            }
+        }
     }
 }
 
