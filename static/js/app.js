@@ -33,7 +33,10 @@ class FinancialAssistantApp {
                 this.isAuthenticated = true;
                 this.setupEventListeners();
                 this.loadTheme();
-                this.checkSystemHealth();
+                // Add small delay to ensure DOM is ready
+                setTimeout(() => {
+                    this.checkSystemHealth();
+                }, 100);
                 this.loadRecentMemories();
                 this.autoResizeTextarea();
                 this.setupLogoutButton();
@@ -756,6 +759,18 @@ class FinancialAssistantApp {
     async checkSystemHealth() {
         try {
             console.log('Checking system health...');
+
+            // Check if DOM elements are ready
+            const modelDropdown = document.getElementById('modelDropdown');
+            const memoryStatus = document.getElementById('memoryStatus');
+            const apiStatus = document.getElementById('apiStatus');
+
+            console.log('DOM elements found:', {
+                modelDropdown: !!modelDropdown,
+                memoryStatus: !!memoryStatus,
+                apiStatus: !!apiStatus
+            });
+
             const response = await this.apiCall('/health', null, 'GET');
             console.log('Health response:', response);
 
@@ -764,40 +779,49 @@ class FinancialAssistantApp {
                 return;
             }
 
-            // Update individual status fields
-            const modelDropdown = document.getElementById('modelDropdown');
-            const memoryStatus = document.getElementById('memoryStatus');
-            const apiStatus = document.getElementById('apiStatus');
-
             // Load available models and update dropdown
             await this.loadModels();
 
             // Model status
-            if (response.model) {
-                // Set dropdown to current model
-                if (modelDropdown) {
-                    modelDropdown.value = response.model;
-                }
+            if (response.model && modelDropdown) {
+                console.log('Setting model dropdown to:', response.model);
+                modelDropdown.value = response.model;
             }
 
             // Memory status
-            if (response.memory_status) {
+            if (response.memory_status && memoryStatus) {
+                console.log('Setting memory status to:', response.memory_status);
                 memoryStatus.textContent = response.memory_status;
                 memoryStatus.className = response.memory_status === 'ok' ? 'status-value online' : 'status-value offline';
-            } else {
+            } else if (memoryStatus) {
                 memoryStatus.textContent = 'Unknown';
                 memoryStatus.className = 'status-value offline';
             }
 
             // API status
-            apiStatus.textContent = 'Online';
-            apiStatus.className = 'status-value online';
+            if (apiStatus) {
+                apiStatus.textContent = 'Online';
+                apiStatus.className = 'status-value online';
+            }
 
             console.log('System health updated successfully');
 
         } catch (error) {
             console.error('Health check error:', error);
             this.updateSystemStatus('error', 'Offline');
+
+            // Fallback: Try to set basic status
+            const memoryStatus = document.getElementById('memoryStatus');
+            const apiStatus = document.getElementById('apiStatus');
+
+            if (memoryStatus) {
+                memoryStatus.textContent = 'Error';
+                memoryStatus.className = 'status-value error';
+            }
+            if (apiStatus) {
+                apiStatus.textContent = 'Error';
+                apiStatus.className = 'status-value error';
+            }
         }
     }
 
@@ -986,8 +1010,11 @@ class FinancialAssistantApp {
 
     async loadModels() {
         try {
+            console.log('Loading models...');
             const response = await this.apiCall('/models', null, 'GET');
             const modelDropdown = document.getElementById('modelDropdown');
+
+            console.log('Models response:', response);
 
             if (response.available_models && modelDropdown) {
                 // Clear existing options
@@ -1004,7 +1031,12 @@ class FinancialAssistantApp {
                     modelDropdown.appendChild(option);
                 });
 
-                console.log(`Loaded ${response.available_models.length} models`);
+                console.log(`Loaded ${response.available_models.length} models:`, response.available_models);
+            } else {
+                console.warn('No models available or dropdown not found:', {
+                    available_models: !!response.available_models,
+                    modelDropdown: !!modelDropdown
+                });
             }
         } catch (error) {
             console.error('Failed to load models:', error);
