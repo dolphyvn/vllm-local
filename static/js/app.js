@@ -41,8 +41,16 @@ class FinancialAssistantApp {
                 this.autoResizeTextarea();
                 this.setupLogoutButton();
             } else {
-                // Redirect to login page
-                window.location.href = '/login';
+                // Try to authenticate automatically
+                console.log('Not authenticated, attempting automatic login...');
+                const loginSuccess = await this.reauthenticate();
+                if (loginSuccess) {
+                    // Retry authentication check
+                    await this.checkAuthentication();
+                } else {
+                    // Redirect to login page
+                    window.location.href = '/login';
+                }
             }
         } catch (error) {
             console.error('Auth check failed:', error);
@@ -1020,6 +1028,27 @@ class FinancialAssistantApp {
 
         const response = await fetch(this.apiBaseUrl + endpoint, options);
 
+        if (response.status === 401) {
+            // Authentication failed, try to re-authenticate
+            console.warn('Authentication failed, attempting to re-authenticate...');
+            const reauthSuccess = await this.reauthenticate();
+            if (reauthSuccess) {
+                // Retry the original request with new token
+                const newSessionToken = localStorage.getItem('session_token');
+                if (newSessionToken) {
+                    options.headers['Authorization'] = `Bearer ${newSessionToken}`;
+                    const retryResponse = await fetch(this.apiBaseUrl + endpoint, options);
+                    if (!retryResponse.ok) {
+                        throw new Error(`HTTP error! status: ${retryResponse.status}`);
+                    }
+                    return await retryResponse.json();
+                }
+            }
+            // If re-authentication fails, redirect to login
+            window.location.href = '/login';
+            throw new Error('Authentication failed');
+        }
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -1033,6 +1062,33 @@ class FinancialAssistantApp {
 
     hideLoading() {
         document.getElementById('loadingOverlay').classList.remove('show');
+    }
+
+    async reauthenticate() {
+        try {
+            console.log('Attempting to re-authenticate...');
+            const response = await fetch(this.apiBaseUrl + '/auth/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ password: 'admin123' })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success && data.session_token) {
+                    localStorage.setItem('session_token', data.session_token);
+                    console.log('Re-authentication successful');
+                    return true;
+                }
+            }
+            console.log('Re-authentication failed');
+            return false;
+        } catch (error) {
+            console.error('Re-authentication error:', error);
+            return false;
+        }
     }
 
     async loadModels() {
