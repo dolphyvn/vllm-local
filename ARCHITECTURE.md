@@ -1,13 +1,20 @@
-# Financial Assistant Architecture Documentation
+# System Architecture Documentation
+
+**Last Updated**: 2025-10-28
+**Project**: Local Financial Assistant with MRAG System
+**URL**: http://ai.vn.aliases.me
+**Version**: 1.3.0 (File Upload Complete)
 
 ## 📋 Project Overview
 
 **Project Name:** Local Financial Assistant
 **Architecture Type:** Memory-Augmented RAG with Programmatic Knowledge Feeding
-**Backend:** FastAPI (Python)
+**Backend:** FastAPI (Python 3.12)
+**Frontend:** Vanilla JavaScript + CSS + HTML5
 **Vector Database:** ChromaDB
-**LLM Integration:** Ollama
-**Authentication:** Session-based with Token Fallback
+**LLM Integration:** Ollama (Gemma3:4b, Phi-3 Mini)
+**Authentication:** Session-based with Automatic Re-authentication
+**File Storage**: Local disk with base64 encoding
 **Deployment:** Remote Server (`ai.vn.aliases.me`)
 
 ---
