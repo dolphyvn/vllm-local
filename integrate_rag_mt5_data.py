@@ -33,6 +33,10 @@ class RAGMT5Integrator:
         self.mt5_export_path = export_path
         self.processed_files_log = log_file
 
+        # Additional options
+        self.file_limit = None
+        self.dry_run = False
+
         # Validate export path exists
         if not os.path.exists(export_path):
             logger.warning(f"Export path does not exist: {export_path}")
@@ -87,6 +91,11 @@ class RAGMT5Integrator:
         for file in os.listdir(self.mt5_export_path):
             if file.startswith("RAG_") and file.endswith(".csv") and file not in processed:
                 rag_files.append(os.path.join(self.mt5_export_path, file))
+
+        # Apply file limit if set
+        if self.file_limit and len(rag_files) > self.file_limit:
+            logger.info(f"📁 Limiting to {self.file_limit} files (found {len(rag_files)})")
+            rag_files = rag_files[:self.file_limit]
 
         return rag_files
 
@@ -286,32 +295,179 @@ Data Source: {filename}
     def feed_knowledge_bulk(self, entries: List[Dict]) -> bool:
         """Feed knowledge entries in bulk"""
         try:
+            if not entries:
+                logger.warning("⚠️ No entries to feed")
+                return False
+
+            if self.dry_run:
+                logger.info(f"🔍 DRY RUN: Would feed {len(entries)} knowledge entries")
+                # Validate entries in dry run mode
+                valid_entries = []
+                for i, entry in enumerate(entries):
+                    try:
+                        cleaned_entry = self.validate_and_clean_entry(entry)
+                        if cleaned_entry:
+                            valid_entries.append(cleaned_entry)
+                        else:
+                            logger.warning(f"⚠️ Entry {i+1} failed validation, skipping")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Error validating entry {i+1}: {e}")
+
+                logger.info(f"✅ DRY RUN: {len(valid_entries)} entries would be sent to API")
+                if valid_entries:
+                    logger.debug(f"🔍 Sample valid entry: {json.dumps(valid_entries[0], indent=2)[:500]}...")
+                return len(valid_entries) > 0
+
+            logger.info(f"📤 Preparing to feed {len(entries)} knowledge entries")
+
+            # Validate and clean entries before sending
+            valid_entries = []
+            for i, entry in enumerate(entries):
+                try:
+                    cleaned_entry = self.validate_and_clean_entry(entry)
+                    if cleaned_entry:
+                        valid_entries.append(cleaned_entry)
+                    else:
+                        logger.warning(f"⚠️ Entry {i+1} failed validation, skipping")
+                except Exception as e:
+                    logger.warning(f"⚠️ Error validating entry {i+1}: {e}")
+
+            if not valid_entries:
+                logger.error("❌ No valid entries to feed after validation")
+                return False
+
+            logger.info(f"✅ {len(valid_entries)} entries passed validation")
+
             # Split into chunks of 10 to avoid request size limits
             chunk_size = 10
             success_count = 0
 
-            for i in range(0, len(entries), chunk_size):
-                chunk = entries[i:i + chunk_size]
+            for i in range(0, len(valid_entries), chunk_size):
+                chunk = valid_entries[i:i + chunk_size]
+                chunk_num = i//chunk_size + 1
 
-                response = self.session.post(
-                    f"{self.base_url}/api/knowledge/bulk",
-                    json={"knowledge_entries": chunk}
-                )
+                logger.info(f"📤 Sending chunk {chunk_num} ({len(chunk)} entries)...")
 
-                if response.status_code == 200:
-                    result = response.json()
-                    success_count += result.get('success_count', 0)
-                    logger.info(f"✅ Chunk {i//chunk_size + 1}: {result.get('success_count', 0)}/{len(chunk)} entries added")
-                else:
-                    logger.error(f"❌ Chunk {i//chunk_size + 1} failed: {response.status_code}")
-                    logger.error(f"Response: {response.text}")
+                # Log sample entry for debugging
+                if i == 0 and chunk:
+                    logger.debug(f"🔍 Sample entry structure: {list(chunk[0].keys())}")
+                    logger.debug(f"🔍 Sample entry: {json.dumps(chunk[0], indent=2)[:500]}...")
 
-            logger.info(f"📈 Total knowledge entries added: {success_count}/{len(entries)}")
+                try:
+                    response = self.session.post(
+                        f"{self.base_url}/api/knowledge/bulk",
+                        json={"knowledge_entries": chunk},
+                        timeout=30  # Add timeout
+                    )
+
+                    logger.debug(f"📡 Response status: {response.status_code}")
+                    logger.debug(f"📡 Response headers: {dict(response.headers)}")
+
+                    if response.status_code == 200:
+                        result = response.json()
+                        chunk_success = result.get('success_count', 0)
+                        success_count += chunk_success
+                        logger.info(f"✅ Chunk {chunk_num}: {chunk_success}/{len(chunk)} entries added")
+
+                        # Log details if some entries failed
+                        if chunk_success < len(chunk):
+                            logger.warning(f"⚠️ {len(chunk) - chunk_success} entries failed in chunk {chunk_num}")
+                            if 'errors' in result:
+                                logger.warning(f"Errors: {result['errors']}")
+                    else:
+                        logger.error(f"❌ Chunk {chunk_num} failed with status {response.status_code}")
+                        logger.error(f"Response text: {response.text}")
+
+                        # Try to parse error details
+                        try:
+                            error_data = response.json()
+                            logger.error(f"Error details: {json.dumps(error_data, indent=2)}")
+                        except:
+                            logger.error(f"Raw response: {response.text[:500]}")
+
+                        # Log the problematic chunk for debugging
+                        if chunk:
+                            logger.error(f"🔍 Problematic chunk preview:")
+                            for j, entry in enumerate(chunk[:3]):  # Show first 3 entries
+                                logger.error(f"  Entry {j+1}: {json.dumps(entry, indent=2)[:300]}...")
+
+                except requests.exceptions.Timeout:
+                    logger.error(f"❌ Chunk {chunk_num} timed out")
+                except requests.exceptions.RequestException as req_e:
+                    logger.error(f"❌ Chunk {chunk_num} request failed: {req_e}")
+                except Exception as chunk_e:
+                    logger.error(f"❌ Chunk {chunk_num} unexpected error: {chunk_e}")
+
+            logger.info(f"📈 Total knowledge entries added: {success_count}/{len(valid_entries)} (from {len(entries)} original)")
             return success_count > 0
 
         except Exception as e:
             logger.error(f"❌ Error feeding knowledge: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return False
+
+    def validate_and_clean_entry(self, entry: Dict) -> Dict:
+        """Validate and clean a knowledge entry"""
+        try:
+            # Required fields
+            required_fields = ['topic', 'content', 'category']
+            cleaned = {}
+
+            # Validate and clean each field
+            for field in required_fields:
+                if field not in entry or not entry[field]:
+                    logger.warning(f"⚠️ Missing required field '{field}'")
+                    return None
+
+                value = entry[field]
+                if isinstance(value, str):
+                    # Clean up string values
+                    value = value.strip()
+                    if not value:
+                        logger.warning(f"⚠️ Empty field '{field}' after stripping")
+                        return None
+                elif field == 'confidence':
+                    # Ensure confidence is between 0 and 1
+                    try:
+                        value = float(value)
+                        value = max(0.0, min(1.0, value))
+                    except (ValueError, TypeError):
+                        logger.warning(f"⚠️ Invalid confidence value: {value}, using 0.5")
+                        value = 0.5
+
+                cleaned[field] = value
+
+            # Optional fields with defaults
+            cleaned['tags'] = entry.get('tags', [])
+            if not isinstance(cleaned['tags'], list):
+                cleaned['tags'] = [str(cleaned['tags'])]
+
+            cleaned['source'] = entry.get('source', 'RAG_MT5_Import')
+            cleaned['priority'] = entry.get('priority', 5)
+
+            # Ensure priority is valid
+            try:
+                cleaned['priority'] = int(cleaned['priority'])
+                cleaned['priority'] = max(1, min(10, cleaned['priority']))
+            except (ValueError, TypeError):
+                cleaned['priority'] = 5
+
+            # Validate content length
+            if len(str(cleaned['content'])) > 10000:
+                logger.warning(f"⚠️ Content too long ({len(str(cleaned['content']))} chars), truncating")
+                cleaned['content'] = str(cleaned['content'])[:10000] + "..."
+
+            # Validate topic length
+            if len(str(cleaned['topic'])) > 200:
+                logger.warning(f"⚠️ Topic too long ({len(str(cleaned['topic']))} chars), truncating")
+                cleaned['topic'] = str(cleaned['topic'])[:200]
+
+            return cleaned
+
+        except Exception as e:
+            logger.error(f"❌ Error validating entry: {e}")
+            return None
 
     def create_trading_lesson(self, entries: List[Dict], symbol: str) -> bool:
         """Create a structured trading lesson from the data"""
@@ -509,8 +665,21 @@ Examples:
                        help="List available CSV files in directory and exit")
     parser.add_argument("--password", default="admin123",
                        help="API password (default: admin123)")
+    parser.add_argument("--debug", action="store_true",
+                       help="Enable debug logging for troubleshooting API issues")
+    parser.add_argument("--dry-run", action="store_true",
+                       help="Parse and validate data but don't send to API")
+    parser.add_argument("--limit-files", type=int,
+                       help="Limit number of files to process (for testing)")
 
     args = parser.parse_args()
+
+    # Configure logging level
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.debug("🐛 Debug mode enabled")
+    else:
+        logging.getLogger().setLevel(logging.INFO)
 
     # Handle directory input
     if args.export_path:
@@ -568,10 +737,26 @@ Examples:
 
         print(f"   API Server: {args.base_url}")
         print(f"   Log file: {args.log_file}")
+        if args.dry_run:
+            print(f"   Mode: DRY RUN - No data will be sent to API")
+        if args.debug:
+            print(f"   Logging: DEBUG level enabled")
+        if args.limit_files:
+            print(f"   File limit: {args.limit_files} files")
 
     except Exception as e:
         logger.error(f"❌ Failed to initialize integrator: {e}")
         sys.exit(1)
+
+    # Apply file limit if specified
+    if args.limit_files:
+        integrator.file_limit = args.limit_files
+        logger.info(f"📁 Limiting processing to {args.limit_files} files")
+
+    # Apply dry run mode
+    if args.dry_run:
+        integrator.dry_run = True
+        logger.info("🔍 DRY RUN MODE: Will parse and validate but not send data")
 
     if args.mode == "once":
         # Process once and exit
@@ -584,7 +769,10 @@ Examples:
         if results['files']:
             print(f"   Files: {', '.join(results['files'])}")
 
-        logger.info(f"🏁 Processing complete: {results}")
+        if args.dry_run:
+            print(f"   ⚠️  DRY RUN: No data was actually sent to API")
+        else:
+            logger.info(f"🏁 Processing complete: {results}")
     else:
         # Continuous monitoring
         print(f"\n🔄 Starting continuous monitoring (every {args.interval} minutes)...")
