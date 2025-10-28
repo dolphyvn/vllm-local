@@ -93,8 +93,64 @@ class RAGMT5Integrator:
     def parse_rag_csv(self, filepath: str) -> List[Dict]:
         """Parse RAG MT5 CSV file and convert to knowledge entries"""
         try:
-            df = pd.read_csv(filepath)
-            logger.info(f"📊 Loaded {len(df)} rows from {os.path.basename(filepath)}")
+            # Try different CSV parsing approaches to handle formatting issues
+            logger.info(f"📖 Attempting to parse {os.path.basename(filepath)}...")
+
+            # First try standard parsing
+            try:
+                df = pd.read_csv(filepath)
+                logger.info(f"✅ Standard parsing successful: {len(df)} rows")
+            except Exception as e:
+                logger.warning(f"⚠️ Standard parsing failed: {e}")
+
+                # Try with different encodings
+                encodings_to_try = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+                df = None
+
+                for encoding in encodings_to_try:
+                    try:
+                        df = pd.read_csv(filepath, encoding=encoding)
+                        logger.info(f"✅ {encoding} parsing successful: {len(df)} rows")
+                        break
+                    except Exception as enc_e:
+                        logger.warning(f"⚠️ {encoding} parsing failed: {enc_e}")
+                        continue
+
+                if df is None:
+                    # Try with different separators and robust parsing
+                    try:
+                        df = pd.read_csv(filepath,
+                                       sep=None,
+                                       engine='python',
+                                       skipinitialspace=True,
+                                       quoting=1,  # QUOTE_ALL
+                                       on_bad_lines='warn')
+                        logger.info(f"✅ Robust parsing successful: {len(df)} rows")
+                    except Exception as robust_e:
+                        logger.error(f"❌ All parsing methods failed for {filepath}")
+                        logger.error(f"Last error: {robust_e}")
+
+                        # Try to examine the file structure
+                        self.diagnose_csv_file(filepath)
+                        return []
+
+            if len(df) == 0:
+                logger.warning(f"⚠️ No data rows found in {filepath}")
+                return []
+
+            logger.info(f"📊 Successfully loaded {len(df)} rows from {os.path.basename(filepath)}")
+
+            # Check if required columns exist
+            required_columns = ['Timestamp', 'RSI', 'MACD', 'Trend', 'Pattern', 'Confidence', 'Session']
+            missing_columns = [col for col in required_columns if col not in df.columns]
+
+            if missing_columns:
+                logger.warning(f"⚠️ Missing columns in {filepath}: {missing_columns}")
+                logger.info(f"Available columns: {list(df.columns)}")
+
+                # Try to work with available columns
+                available_columns = df.columns.tolist()
+                logger.info(f"📋 Working with available columns: {available_columns}")
 
             knowledge_entries = []
             symbol = "UNKNOWN"
@@ -107,51 +163,113 @@ class RAGMT5Integrator:
                 symbol = "EURUSD"
             elif "BTCUSD" in filename:
                 symbol = "BTCUSD"
+            else:
+                # Try to extract from first row if symbol column exists
+                if 'Symbol' in df.columns and len(df) > 0:
+                    symbol = str(df.iloc[0]['Symbol']).upper()
 
-            for _, row in df.iterrows():
-                # Extract key metrics
-                timestamp = row.get('Timestamp', 'Unknown')
-                rsi = row.get('RSI', 0)
-                macd = row.get('MACD', 0)
-                trend = row.get('Trend', 'UNKNOWN')
-                pattern = row.get('Pattern', 'UNKNOWN')
-                confidence = row.get('Confidence', 0)
-                session = row.get('Session', 'UNKNOWN')
+            successful_rows = 0
+            failed_rows = 0
 
-                # Create comprehensive knowledge entry
-                content = f"""
+            for index, row in df.iterrows():
+                try:
+                    # Extract key metrics with fallbacks
+                    timestamp = str(row.get('Timestamp', f'Row_{index}'))
+                    rsi = self.safe_float(row.get('RSI', 50))
+                    macd = self.safe_float(row.get('MACD', 0))
+                    trend = str(row.get('Trend', 'UNKNOWN')).upper()
+                    pattern = str(row.get('Pattern', 'UNKNOWN')).upper()
+                    confidence = self.safe_float(row.get('Confidence', 50))
+                    session = str(row.get('Session', 'UNKNOWN')).upper()
+
+                    # Skip rows with critical missing data
+                    if timestamp == 'nan' or timestamp == 'Row_0':
+                        failed_rows += 1
+                        continue
+
+                    # Create comprehensive knowledge entry
+                    content = f"""
 Trading Analysis for {symbol} at {timestamp}:
 
 Technical Indicators:
-- RSI: {rsi} (Overbought/Oversold: {'Overbought' if rsi > 70 else 'Oversold' if rsi < 30 else 'Neutral'})
-- MACD: {macd}
+- RSI: {rsi:.2f} (Overbought/Oversold: {'Overbought' if rsi > 70 else 'Oversold' if rsi < 30 else 'Neutral'})
+- MACD: {macd:.6f}
 - Trend: {trend}
 - Pattern: {pattern}
 - Session: {session}
-- Confidence: {confidence}%
+- Confidence: {confidence:.1f}%
 
 Market Context:
 This analysis represents a {trend.lower()} market condition during {session.lower()} trading session.
 The {pattern} pattern suggests {self.get_pattern_interpretation(pattern)}.
+
+Data Source: {filename}
 """
 
-                knowledge_entry = {
-                    "topic": f"{symbol} Technical Analysis {timestamp}",
-                    "content": content.strip(),
-                    "category": "trading_analysis",
-                    "confidence": min(confidence / 100, 1.0),
-                    "tags": [symbol.lower(), "technical", "rsi", "macd", trend.lower(), pattern.lower(), session.lower()],
-                    "source": f"RAG_MT5_{filename}",
-                    "priority": 7 if confidence > 70 else 5
-                }
+                    knowledge_entry = {
+                        "topic": f"{symbol} Technical Analysis {timestamp}",
+                        "content": content.strip(),
+                        "category": "trading_analysis",
+                        "confidence": min(confidence / 100, 1.0),
+                        "tags": [symbol.lower(), "technical", "rsi", "macd", trend.lower(), pattern.lower(), session.lower()],
+                        "source": f"RAG_MT5_{filename}",
+                        "priority": 7 if confidence > 70 else 5
+                    }
 
-                knowledge_entries.append(knowledge_entry)
+                    knowledge_entries.append(knowledge_entry)
+                    successful_rows += 1
+
+                except Exception as row_error:
+                    failed_rows += 1
+                    if failed_rows <= 5:  # Only log first 5 errors to avoid spam
+                        logger.warning(f"⚠️ Error processing row {index}: {row_error}")
+
+            logger.info(f"📈 Processing summary for {filename}: {successful_rows} successful, {failed_rows} failed")
 
             return knowledge_entries
 
         except Exception as e:
-            logger.error(f"❌ Error parsing {filepath}: {e}")
+            logger.error(f"❌ Critical error parsing {filepath}: {e}")
             return []
+
+    def safe_float(self, value) -> float:
+        """Safely convert value to float"""
+        try:
+            if pd.isna(value) or value == '' or value is None:
+                return 0.0
+            return float(value)
+        except (ValueError, TypeError):
+            return 0.0
+
+    def diagnose_csv_file(self, filepath: str):
+        """Diagnose CSV file structure issues"""
+        try:
+            logger.info(f"🔍 Diagnosing CSV file: {filepath}")
+
+            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                # Read first few lines
+                lines = []
+                for i, line in enumerate(f):
+                    if i < 20:  # Read first 20 lines
+                        lines.append(line.strip())
+                    else:
+                        break
+
+            logger.info(f"📄 First 20 lines of {os.path.basename(filepath)}:")
+            for i, line in enumerate(lines):
+                logger.info(f"  Line {i+1:2d}: {line[:100]}{'...' if len(line) > 100 else ''}")
+                logger.info(f"          Fields: {len(line.split(','))}")
+
+            # Check file encoding
+            try:
+                with open(filepath, 'rb') as f:
+                    raw_data = f.read(1000)
+                logger.info(f"🔤 File encoding sample: {raw_data[:100]}")
+            except Exception as e:
+                logger.warning(f"⚠️ Could not read raw data: {e}")
+
+        except Exception as e:
+            logger.error(f"❌ Error diagnosing file: {e}")
 
     def get_pattern_interpretation(self, pattern: str) -> str:
         """Get interpretation of candlestick pattern"""
