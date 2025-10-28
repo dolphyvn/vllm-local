@@ -218,7 +218,7 @@ Data Source: {filename}
                     knowledge_entry = {
                         "topic": f"{symbol} Technical Analysis {timestamp}",
                         "content": content.strip(),
-                        "category": "trading_analysis",
+                        "category": "trading",  # Fixed: Use enum value instead of arbitrary string
                         "confidence": min(confidence / 100, 1.0),
                         "tags": [symbol.lower(), "technical", "rsi", "macd", trend.lower(), pattern.lower(), session.lower()],
                         "source": f"RAG_MT5_{filename}",
@@ -410,6 +410,12 @@ Data Source: {filename}
     def validate_and_clean_entry(self, entry: Dict) -> Dict:
         """Validate and clean a knowledge entry"""
         try:
+            # Valid category values from KnowledgeCategory enum
+            valid_categories = {
+                'general', 'trading', 'financial', 'technical', 'business',
+                'market', 'risk_management', 'strategy', 'definitions', 'corrections'
+            }
+
             # Required fields
             required_fields = ['topic', 'content', 'category']
             cleaned = {}
@@ -435,6 +441,22 @@ Data Source: {filename}
                     except (ValueError, TypeError):
                         logger.warning(f"⚠️ Invalid confidence value: {value}, using 0.5")
                         value = 0.5
+
+                # Validate category specifically
+                if field == 'category':
+                    if value not in valid_categories:
+                        logger.warning(f"⚠️ Invalid category '{value}', must be one of: {sorted(valid_categories)}")
+                        # Try to map common variations
+                        category_mapping = {
+                            'trading_analysis': 'trading',
+                            'technical_analysis': 'technical',
+                            'financial_analysis': 'financial',
+                            'market_analysis': 'market',
+                            'risk': 'risk_management',
+                            'strategies': 'strategy'
+                        }
+                        value = category_mapping.get(value, 'trading')  # Default to 'trading'
+                        logger.info(f"🔧 Mapped category to: {value}")
 
                 cleaned[field] = value
 
@@ -508,17 +530,11 @@ This lesson is based on analysis of {total_entries} data points from RAG MT5 sys
 
             lesson_data = {
                 "title": f"{symbol} Technical Analysis Lesson",
-                "content": lesson_content.strip(),
-                "category": "trading_education",
-                "difficulty": "intermediate",
-                "prerequisites": ["Basic understanding of technical analysis", "RSI and MACD knowledge"],
-                "learning_objectives": [
-                    f"Understand {symbol} market patterns",
-                    "Apply technical indicators effectively",
-                    "Recognize trading opportunities"
-                ],
-                "tags": [symbol.lower(), "technical_analysis", "trading_education"],
-                "source": "RAG_MT5_Auto_Lesson"
+                "situation": f"Analysis of {symbol} trading patterns and technical indicators",
+                "lesson": lesson_content.strip(),
+                "category": "trading",  # Fixed: Use valid enum value
+                "confidence": 0.9,
+                "tags": [symbol.lower(), "technical_analysis", "trading_lesson"]
             }
 
             response = self.session.post(
