@@ -1,0 +1,65 @@
+{
+  "default_model": "gemma3:1b",
+  "system_prompt": "You are a professional trading analyst and financial expert. Provide accurate, data-driven analysis for trading decisions. Always consider risk management and market context. If you're uncertain about market movements, acknowledge the uncertainty rather than making definitive predictions.",
+
+  "financial_embedding": {
+    "enabled": true,
+    "model_type": "finance-news-v1",
+    "scenarios": {
+      "market_sentiment": "finance-news-v1",
+      "technical_analysis": "finance-technical-v1",
+      "real_time_monitoring": "finance-e5-small",
+      "research_reports": "finance-roberta-large",
+      "portfolio_analysis": "finance-news-v1",
+      "risk_assessment": "finance-roberta-large"
+    }
+  },
+
+  "auth_settings": {
+    "password": "admin123",
+    "session_timeout_minutes": 480,
+    "cookie_secret": "your-secret-key-change-this-in-production"
+  },
+
+  "api_settings": {
+    "ollama_base_url": "http://127.0.0.1:11434",
+    "ollama_timeout": 300,
+    "max_tokens": 2048,
+    "temperature": 0.3,
+    "memory_context_entries": 5,
+    "financial_context_enabled": true
+  },
+
+  "memory_settings": {
+    "collection_name": "financial_trading_memory",
+    "persist_directory": "./chroma_db",
+    "max_memory_age_days": 90,
+    "backup_enabled": true,
+    "financial_memory_enabled": true
+  },
+
+  "trading_settings": {
+    "default_timeframes": ["1m", "5m", "15m", "1h", "1d"],
+    "supported_indicators": ["RSI", "MACD", "BB", "SMA", "EMA", "VWAP", "ATR"],
+    "risk_management": {
+      "max_position_size": 0.05,
+      "stop_loss_percentage": 0.02,
+      "take_profit_percentage": 0.06
+    }
+  },
+
+  "ollama_settings": {
+    "recommended_models": [
+      "llama3.2",
+      "llama3.1:8b",
+      "qwen2.5:7b",
+      "mistral:7b",
+      "phi3:mini"
+    ],
+    "financial_models": [
+      "llama3.2",
+      "llama3.1:8b",
+      "qwen2.5:7b"
+    ]
+  }
+}
