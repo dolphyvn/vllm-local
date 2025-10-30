@@ -1,0 +1,56 @@
+{
+  "default_model": "0xroyce/plutus:latest",
+  "system_prompt": "You are a professional trading analyst and financial expert. Provide accurate, data-driven analysis for trading decisions. Always consider technical indicators, risk management, and market context. If you're uncertain about market movements, acknowledge the uncertainty rather than making definitive predictions.",
+  "auth_settings": {
+    "password": "admin123",
+    "session_timeout_minutes": 480,
+    "cookie_secret": "your-secret-key-change-this-in-production"
+  },
+  "financial_embedding": {
+    "enabled": true,
+    "model_type": "finance-technical-v1",
+    "dimensions": 768,
+    "max_sequence_length": 512,
+    "normalize_embeddings": true
+  },
+  "api_settings": {
+    "ollama_base_url": "http://127.0.0.1:11434",
+    "ollama_timeout": 300,
+    "max_tokens": 2048,
+    "temperature": 0.3,
+    "memory_context_entries": 5,
+    "financial_context_enabled": true
+  },
+  "memory_settings": {
+    "collection_name": "financial_trading_memory",
+    "persist_directory": "./chroma_db",
+    "max_memory_age_days": 90,
+    "backup_enabled": true,
+    "financial_memory_enabled": true
+  },
+  "trading_settings": {
+    "default_timeframes": ["1m", "5m", "15m", "1h", "1d"],
+    "supported_indicators": ["RSI", "MACD", "BB", "SMA", "EMA", "VWAP", "ATR", "Stochastic", "ADX"],
+    "risk_management": {
+      "max_position_size": 0.05,
+      "stop_loss_percentage": 0.02,
+      "take_profit_percentage": 0.06
+    }
+  },
+  "ollama_settings": {
+    "recommended_models": [
+      "llama3.2",
+      "llama3.1:8b",
+      "qwen2.5:7b",
+      "mistral:7b",
+      "phi3:mini",
+      "0xroyce/plutus:latest"
+    ],
+    "financial_models": [
+      "llama3.2",
+      "llama3.1:8b",
+      "qwen2.5:7b",
+      "0xroyce/plutus:latest"
+    ]
+  }
+}
