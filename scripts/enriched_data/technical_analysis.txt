@@ -1,0 +1,17 @@
+TECHNICAL ANALYSIS:
+
+TREND & MOMENTUM:
+- Trend Strength: -2.48 (Very Strong)
+- RSI 14: 34.0 (Neutral)
+- RSI 7: 23.5, RSI 21: 40.4
+- MACD: -0.949 (Signal: 0.226)
+
+MOVING AVERAGES:
+- EMA 12: 4000.92 | Position: Below
+- EMA 26: 4001.87 | Position: Below
+- SMA 20: 4003.44 | SMA 50: 4001.40
+
+BOLLINGER BANDS:
+- Position: -6.5% (Lower Band)
+- Band Width: 12.15
+- Squeeze: Yes

@@ -1,0 +1,13 @@
+TRADING SIGNALS:
+
+ACTIVE SIGNALS: BB LOWER BREAKOUT
+
+CONFLUENCE FACTORS:
+- Volume: Below average
+- Trend: Mixed
+- Volatility: Normal
+
+RISK METRICS:
+- ATR (14): 2.53
+- Recent Range: 3.17
+- Stop Distance: 3.80 (1.5x ATR)

@@ -176,7 +176,7 @@
                     </div>
                     <div class="shortcut-group">
                         <span class="group-label">Live Data:</span>
-                        <button class="shortcut-btn" onclick="sendTradingCommand('analyze live trading data')">
+                        <button class="shortcut-btn" onclick="showFileSelection()">
                             🔄 Live Analysis
                         </button>
                         <button class="shortcut-btn" onclick="sendTradingCommand('check market sentiment')">
@@ -193,6 +193,24 @@
             <div class="input-container">
                 <div class="input-wrapper">
                     <div class="input-content">
+                        <!-- File Selection for Live Analysis -->
+                        <div id="fileSelectionArea" style="display: none; margin-bottom: 8px;">
+                            <select id="fileSelect" class="form-control" style="width: 100%; margin-bottom: 8px;">
+                                <option value="">Loading 200-candle files...</option>
+                            </select>
+                            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                                <button id="convertToJsonBtn" class="btn btn-sm btn-primary" style="padding: 6px 12px; flex: 1;" onclick="convertAndSendToChat()">
+                                    🔄 Multi-Timeframe Analysis
+                                </button>
+                                <button id="cancelFileSelectionBtn" class="btn btn-sm btn-secondary" style="padding: 6px 12px;" onclick="hideFileSelection()">
+                                    Cancel
+                                </button>
+                            </div>
+                            <div id="conversionStatus" style="display: none; padding: 8px; background: var(--bg-secondary); border-radius: 6px; margin-bottom: 8px;">
+                                <span id="conversionStatusText">Converting...</span>
+                            </div>
+                        </div>
+
                         <textarea
                             id="messageInput"
                             placeholder="Ask about market analysis, trading strategies, risk management..."
@@ -247,8 +265,199 @@
         </div>
     </div>
 
+  
     <script src="/static/js/app.js"></script>
     <script>
+        // Simplified Live Analysis Functions
+        let files200 = [];
+
+        async function showFileSelection() {
+            const fileArea = document.getElementById('fileSelectionArea');
+            const inputArea = document.querySelector('.input-content');
+
+            // Load 200-candle files
+            await load200CandleFiles();
+
+            // Show file selection area
+            fileArea.style.display = 'block';
+
+            // Focus on file select
+            document.getElementById('fileSelect').focus();
+        }
+
+        async function load200CandleFiles() {
+            try {
+                const sessionToken = localStorage.getItem('session_token');
+                const response = await fetch('/api/available-files', {
+                    headers: {
+                        'Authorization': `Bearer ${sessionToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    // Filter only files ending with _200.csv
+                    files200 = data.files.filter(file => file.name.endsWith('_200.csv'));
+                    populate200FileSelect();
+                } else {
+                    console.error('Failed to load files');
+                }
+            } catch (error) {
+                console.error('Error loading files:', error);
+            }
+        }
+
+        function populate200FileSelect() {
+            const select = document.getElementById('fileSelect');
+            select.innerHTML = '';
+
+            if (files200.length === 0) {
+                select.innerHTML = '<option value="">No 200-candle files found</option>';
+                return;
+            }
+
+            // Add "Select file..." as first option
+            const defaultOption = document.createElement('option');
+            defaultOption.value = '';
+            defaultOption.textContent = 'Select a 200-candle file...';
+            select.appendChild(defaultOption);
+
+            files200.forEach(file => {
+                const option = document.createElement('option');
+                option.value = file.path;
+                option.textContent = `${file.name} (${formatFileSize(file.size)})`;
+                select.appendChild(option);
+            });
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function hideFileSelection() {
+            const fileArea = document.getElementById('fileSelectionArea');
+            fileArea.style.display = 'none';
+        }
+
+        // Convert CSV to JSON and send to chat
+        async function convertAndSendToChat() {
+            const filePath = document.getElementById('fileSelect').value;
+
+            if (!filePath) {
+                alert('Please select a file first');
+                return;
+            }
+
+            const statusDiv = document.getElementById('conversionStatus');
+            const statusText = document.getElementById('conversionStatusText');
+            const convertBtn = document.getElementById('convertToJsonBtn');
+            const cancelBtn = document.getElementById('cancelFileSelectionBtn');
+
+            // Show status and disable buttons
+            statusDiv.style.display = 'block';
+            statusText.textContent = '🔄 Processing multi-timeframe analysis...';
+            convertBtn.disabled = true;
+            cancelBtn.disabled = true;
+
+            try {
+                const sessionToken = localStorage.getItem('session_token');
+                const response = await fetch('/api/enhanced-analysis', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${sessionToken}`
+                    },
+                    body: JSON.stringify({
+                        file_path: filePath,
+                        save_rag: true
+                    })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+
+                    statusText.textContent = '✅ Multi-timeframe analysis completed! Sending to chat...';
+
+                    console.log('Enhanced analysis result:', result); // Debug log
+
+                    // Create comprehensive chat message with the full JSON data
+                    const fileName = result.file_info.filename;
+                    const ragData = result.rag_data || {};
+
+                    // Build message with comprehensive multi-timeframe analysis
+                    const symbol = result.file_info.symbol;
+                    const comprehensiveAnalysis = result.comprehensive_analysis;
+                    const marketContext = comprehensiveAnalysis.overall_market_context;
+                    const timeframeAnalysis = comprehensiveAnalysis.timeframe_analysis;
+
+                    console.log('Comprehensive analysis loaded:', {
+                        symbol: symbol,
+                        timeframes: Object.keys(timeframeAnalysis),
+                        coverageDays: marketContext.time_coverage_days
+                    });
+
+                    let chatMessage = `🔄 Comprehensive Multi-Timeframe Analysis\n\n📊 Symbol: ${symbol}\n📈 Analysis Type: Multi-Timeframe (All Timeframes)\n📊 Total Timeframes: ${marketContext.total_timeframes_analyzed}\n🕐 Time Coverage: ${marketContext.time_coverage_days.toFixed(1)} days\n⏰ Analysis Timestamp: ${comprehensiveAnalysis.analysis_timestamp}\n\n**Market Overview:**\n• Overall Trend: ${marketContext.overall_trend.toUpperCase()}\n• Trend Consensus: ${JSON.stringify(marketContext.trend_votes)}\n• Total Time Coverage: ${marketContext.time_coverage_days.toFixed(1)} days\n• Consensus VWAP: $${marketContext.consensus_levels.avg_vwap?.toFixed(2) || 'N/A'}\n• Consensus POC: $${marketContext.consensus_levels.avg_poc?.toFixed(2) || 'N/A'}\n• VWAP Confluence: ${marketContext.consensus_levels.vwap_confluence ? 'YES' : 'NO'}\n• POC Confluence: ${marketContext.consensus_levels.poc_confluence ? 'YES' : 'NO'}\n\n**Complete Technical Analysis Data:**\n\`\`\`json\n${JSON.stringify(comprehensiveAnalysis, null, 2)}\n\`\`\`\n\n---\n*✅ Comprehensive analysis completed with ${marketContext.total_timeframes_analyzed} timeframes covering ${marketContext.time_coverage_days.toFixed(1)} days of market data*\n\n**Available Timeframes:**\n${Object.keys(timeframeAnalysis).map(tf => `• ${tf}: ${timeframeAnalysis[tf].analyzed_candles} candles, ${timeframeAnalysis[tf].time_coverage_hours.toFixed(1)} hours coverage`).join('\\n')}\n\nYou are an expert trader, technical analysis, data analysis. Please tell me best trade direction, included clear entry, stoploss and take profit.`;
+
+                    console.log('Final chat message length:', chatMessage.length); // Debug log
+
+                    // Hide file selection area
+                    hideFileSelection();
+
+                    // Add to chat using existing app function
+                    if (window.app && window.app.sendMessage) {
+                        // Set the message in the input
+                        document.getElementById('messageInput').value = chatMessage;
+
+                        // Enable send button
+                        document.getElementById('sendBtn').disabled = false;
+
+                        // Send the message
+                        setTimeout(() => {
+                            window.app.sendMessage();
+                        }, 500);
+                    }
+                } else {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Analysis failed');
+                }
+            } catch (error) {
+                console.error('Analysis error:', error);
+                statusText.textContent = `❌ Error: ${error.message}`;
+                statusDiv.style.background = 'rgba(207, 34, 46, 0.1)';
+                statusDiv.style.color = 'var(--error)';
+            } finally {
+                // Re-enable buttons
+                convertBtn.disabled = false;
+                cancelBtn.disabled = false;
+
+                // Hide status after 3 seconds
+                setTimeout(() => {
+                    statusDiv.style.display = 'none';
+                    statusDiv.style.background = '';
+                    statusDiv.style.color = '';
+                }, 3000);
+            }
+        }
+
+        // Event listener for file selection
+        document.addEventListener('DOMContentLoaded', function() {
+            const fileSelect = document.getElementById('fileSelect');
+            if (fileSelect) {
+                fileSelect.addEventListener('change', function() {
+                    if (this.value) {
+                        // Auto-enable convert button when file is selected
+                        document.getElementById('convertToJsonBtn').disabled = false;
+                    } else {
+                        document.getElementById('convertToJsonBtn').disabled = true;
+                    }
+                });
+            }
+        });
+
         // Fallback authentication check in case app.js doesn't load properly
         window.addEventListener('load', async function() {
             // Check if already authenticated by app.js

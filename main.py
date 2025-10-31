@@ -9,6 +9,7 @@ import requests
 import aiohttp
 import base64
 import mimetypes
+import glob
 from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
@@ -24,6 +25,7 @@ import uuid
 import queue
 import threading
 import pandas as pd
+import numpy as np
 import re
 
 from memory import MemoryManager
@@ -35,6 +37,7 @@ from knowledge_feeder import (
     CorrectionEntry, DefinitionEntry, ApiResponse, KnowledgeStats,
     KnowledgeCategory
 )
+from web_search import WebSearchTool, TradingNewsAPI, TradingTools
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -81,7 +84,41 @@ def _is_trading_query(query_text: str) -> bool:
     query_lower = query_text.lower()
     return any(keyword in query_lower for keyword in trading_keywords)
 
-async def get_llm_trading_analysis(query_text: str, context_data: Dict[str, Any]) -> Optional[str]:
+async def get_llm_trading_analysis(prompt: str, data: dict = None, model: str = "gemma3:1b") -> str:
+    """
+    Get trading analysis from local LLM using existing OllamaClient
+    """
+    try:
+        # Use the detailed prompt directly (it already contains all the technical data)
+        # The create_detailed_llm_prompt function already formats everything properly
+
+        # Build messages for Ollama
+        messages = [
+            {
+                "role": "system",
+                "content": "You are an expert trading analyst and technical analysis specialist. CRITICAL: You MUST follow the exact format requested in the prompt. The user specifically asked for numbered sections with TRADE DIRECTION, ENTRY PRICE, STOP LOSS, TAKE PROFIT, RISK/REWARD, TECHNICAL REASONING, and RISK MANAGEMENT. Do NOT write a generic analysis - follow the exact structure requested!"
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+
+        logger.info(f"Sending prompt to LLM (model: {model}), prompt length: {len(prompt)}")
+
+        # Use existing OllamaClient with the specified model
+        client = OllamaClient(base_url=OLLAMA_BASE_URL, model=model)
+        ai_response = await client.chat_completion(messages)
+
+        logger.info(f"LLM response received, length: {len(ai_response) if ai_response else 0}")
+
+        return ai_response
+
+    except Exception as e:
+        logger.error(f"Error getting LLM trading analysis: {e}")
+        return f"Error getting LLM analysis: {e}"
+
+async def get_llm_trading_analysis_old(query_text: str, context_data: Dict[str, Any]) -> Optional[str]:
     """Get LLM analysis for trading queries"""
     if not _is_ollama_available():
         return None
@@ -656,6 +693,12 @@ config = load_config()
 memory_manager = MemoryManager()
 lesson_manager = LessonManager()
 rag_enhancer = RAGEnhancer(memory_manager)
+
+# Initialize web search and trading news tools
+web_search_tool = WebSearchTool()
+trading_news_api = TradingNewsAPI(web_search_tool)
+trading_tools = TradingTools(web_search_tool, trading_news_api)
+logger.info("Web search and trading news tools initialized")
 
 # Initialize authentication manager
 auth_settings = config.get("auth_settings", {})
@@ -3008,6 +3051,165 @@ async def query_endpoint(request: Request, query_request: Dict[str, Any]):
         logger.error(f"Query endpoint error: {e}")
         raise HTTPException(status_code=500, detail=f"Query processing failed: {str(e)}")
 
+@app.post("/api/enhanced-analysis")
+async def enhanced_live_analysis(http_request: Request):
+    """Enhanced live analysis endpoint for comprehensive multi-timeframe analysis"""
+    try:
+        user = get_current_user(auth_manager, http_request)
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        data = await http_request.json()
+        file_path = data.get('file_path')
+        save_rag = data.get('save_rag', True)
+
+        if not file_path:
+            raise HTTPException(status_code=400, detail="file_path is required")
+
+        # Validate file exists
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+
+        logger.info(f"Enhanced analysis request for {file_path}")
+
+        # Extract symbol from filename for multi-timeframe analysis
+        import re
+        filename = os.path.basename(file_path)
+        symbol_match = re.match(r'^([A-Z0-9]+)_PERIOD_([MH][0-9,]+[DW]?)_200\.csv$', filename)
+
+        if not symbol_match:
+            raise HTTPException(status_code=400, detail="Invalid filename format. Expected: SYMBOL_PERIOD_TIMEFRAME_200.csv")
+
+        symbol = symbol_match.group(1)
+        timeframe = symbol_match.group(2)
+
+        # Use the multi-timeframe analyzer
+        import sys
+        sys.path.append(os.path.join(os.path.dirname(__file__), 'scripts'))
+
+        try:
+            from multi_timeframe_analyzer import process_symbol_all_timeframes
+        except ImportError as e:
+            logger.error(f"Failed to import multi_timeframe_analyzer: {e}")
+            logger.error(f"Current Python path: {sys.path}")
+            raise HTTPException(status_code=500, detail=f"Import error: {e}")
+
+        logger.info(f"Processing multi-timeframe analysis for symbol: {symbol}")
+
+        # Process all timeframes for the symbol
+        success = process_symbol_all_timeframes("./data", symbol, "./data/rag_processed")
+
+        if not success:
+            raise HTTPException(status_code=500, detail=f"Failed to process multi-timeframe analysis for {symbol}")
+
+        # Load the comprehensive analysis
+        analysis_file = os.path.join("./data/rag_processed", f"{symbol}.json")
+        if not os.path.exists(analysis_file):
+            raise HTTPException(status_code=500, detail=f"Analysis file not found: {analysis_file}")
+
+        def clean_nan_values(obj):
+                """Recursively clean NaN and infinite values from data structure"""
+                if isinstance(obj, dict):
+                    return {k: clean_nan_values(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [clean_nan_values(item) for item in obj]
+                elif isinstance(obj, float):
+                    if np.isnan(obj) or np.isinf(obj):
+                        return None
+                    else:
+                        return obj
+                else:
+                    return obj
+
+        try:
+            with open(analysis_file, 'r', encoding='utf-8') as f:
+                comprehensive_analysis = json.load(f)
+
+            # Clean NaN values from the analysis
+            comprehensive_analysis = clean_nan_values(comprehensive_analysis)
+
+            logger.info(f"Successfully loaded multi-timeframe analysis for {symbol}")
+            logger.info(f"  - Timeframes analyzed: {len(comprehensive_analysis['timeframe_analysis'])}")
+            logger.info(f"  - Total coverage: {comprehensive_analysis['overall_market_context']['time_coverage_days']:.1f} days")
+
+            return {
+                "success": True,
+                "comprehensive_analysis": comprehensive_analysis,
+                "file_info": {
+                    "symbol": symbol,
+                    "original_file": filename,
+                    "timeframe": timeframe,
+                    "analysis_type": "multi-timeframe",
+                    "total_timeframes": len(comprehensive_analysis['timeframe_analysis']),
+                    "coverage_days": comprehensive_analysis['overall_market_context']['time_coverage_days']
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Error loading analysis file: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to load analysis: {str(e)}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Enhanced analysis endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=f"Enhanced analysis failed: {str(e)}")
+
+@app.get("/api/available-files")
+async def get_available_files(http_request: Request):
+    """Get list of available CSV files for analysis"""
+    try:
+        user = get_current_user(auth_manager, http_request)
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        data_dir = "./data"
+        if not os.path.exists(data_dir):
+            return {"files": []}
+
+        csv_files = []
+        for file_path in glob.glob(os.path.join(data_dir, "*.csv")):
+            stat = os.stat(file_path)
+            csv_files.append({
+                "name": os.path.basename(file_path),
+                "path": file_path,
+                "size": stat.st_size,
+                "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
+            })
+
+        # Sort by modification time (newest first)
+        csv_files.sort(key=lambda x: x['modified'], reverse=True)
+
+        return {"files": csv_files}
+
+    except Exception as e:
+        logger.error(f"Available files endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get files: {str(e)}")
+
+@app.get("/api/available-models")
+async def get_available_models_endpoint(http_request: Request):
+    """Get list of available LLM models"""
+    try:
+        user = get_current_user(auth_manager, http_request)
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        try:
+            import requests
+            response = requests.get("http://localhost:11434/api/tags", timeout=5)
+            if response.status_code == 200:
+                models = [model['name'] for model in response.json().get('models', [])]
+                return {"models": models}
+        except:
+            pass
+
+        # Fallback models
+        return {"models": ['gemma3:1b', 'gemma2:2b', 'qwen3:0.6b', 'qwen3:14b']}
+
+    except Exception as e:
+        logger.error(f"Available models endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get models: {str(e)}")
+
 def _is_trading_query(query: str) -> bool:
     """Check if query is related to trading/finance"""
     trading_keywords = [
@@ -3060,6 +3262,316 @@ async def clear_all_knowledge(request: Request):
             success=False,
             message=f"Failed to clear knowledge: {str(e)}"
         )
+
+# ============================================================================
+# Web Search and Trading News Endpoints
+# ============================================================================
+
+@app.get("/api/web/search")
+async def web_search_endpoint(
+    query: str,
+    max_results: int = 5,
+    request: Request = None
+):
+    """
+    Search the web for information
+
+    Args:
+        query: Search query string
+        max_results: Maximum number of results (default: 5)
+        request: FastAPI request for authentication
+
+    Returns:
+        Search results
+    """
+    get_current_user(auth_manager, request)
+    logger.info(f"Web search requested: {query}")
+
+    try:
+        results = web_search_tool.search_web(query, max_results)
+        return {
+            "success": True,
+            "query": query,
+            "results": results,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Web search error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/news/search")
+async def news_search_endpoint(
+    query: str,
+    max_results: int = 5,
+    request: Request = None
+):
+    """
+    Search for recent news articles
+
+    Args:
+        query: Search query string
+        max_results: Maximum number of articles (default: 5)
+        request: FastAPI request for authentication
+
+    Returns:
+        News search results
+    """
+    get_current_user(auth_manager, request)
+    logger.info(f"News search requested: {query}")
+
+    try:
+        results = web_search_tool.search_news(query, max_results)
+        return {
+            "success": True,
+            "query": query,
+            "results": results,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"News search error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/news/symbol/{symbol}")
+async def symbol_news_endpoint(
+    symbol: str,
+    request: Request = None
+):
+    """
+    Get latest news for a specific trading symbol
+
+    Args:
+        symbol: Trading symbol (e.g., XAUUSD, EURUSD, BTCUSD)
+        request: FastAPI request for authentication
+
+    Returns:
+        Symbol-specific news
+    """
+    get_current_user(auth_manager, request)
+    logger.info(f"Symbol news requested: {symbol}")
+
+    try:
+        news = trading_news_api.get_symbol_news(symbol)
+        return {
+            "success": True,
+            "symbol": symbol,
+            "news": news,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Symbol news error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/news/market-sentiment/{symbol}")
+async def market_sentiment_endpoint(
+    symbol: str,
+    request: Request = None
+):
+    """
+    Get current market sentiment for a symbol
+
+    Args:
+        symbol: Trading symbol
+        request: FastAPI request for authentication
+
+    Returns:
+        Market sentiment analysis
+    """
+    get_current_user(auth_manager, request)
+    logger.info(f"Market sentiment requested: {symbol}")
+
+    try:
+        sentiment = trading_news_api.get_market_sentiment(symbol)
+        return {
+            "success": True,
+            "symbol": symbol,
+            "sentiment": sentiment,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Market sentiment error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/news/economic-calendar")
+async def economic_calendar_endpoint(request: Request = None):
+    """
+    Get today's important economic events
+
+    Args:
+        request: FastAPI request for authentication
+
+    Returns:
+        Economic calendar data
+    """
+    get_current_user(auth_manager, request)
+    logger.info("Economic calendar requested")
+
+    try:
+        calendar = trading_news_api.get_economic_calendar()
+        return {
+            "success": True,
+            "calendar": calendar,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Economic calendar error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/news/market-overview")
+async def market_overview_endpoint(request: Request = None):
+    """
+    Get general market overview
+
+    Args:
+        request: FastAPI request for authentication
+
+    Returns:
+        Market overview data
+    """
+    get_current_user(auth_manager, request)
+    logger.info("Market overview requested")
+
+    try:
+        overview = trading_news_api.get_market_overview()
+        return {
+            "success": True,
+            "overview": overview,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Market overview error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/news/technical-analysis/{symbol}")
+async def technical_analysis_news_endpoint(
+    symbol: str,
+    request: Request = None
+):
+    """
+    Get latest technical analysis for a symbol
+
+    Args:
+        symbol: Trading symbol
+        request: FastAPI request for authentication
+
+    Returns:
+        Technical analysis from news sources
+    """
+    get_current_user(auth_manager, request)
+    logger.info(f"Technical analysis news requested: {symbol}")
+
+    try:
+        analysis = trading_news_api.get_technical_analysis(symbol)
+        return {
+            "success": True,
+            "symbol": symbol,
+            "analysis": analysis,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Technical analysis news error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/chat/web-enhanced")
+async def web_enhanced_chat_endpoint(
+    request: ChatRequest,
+    http_request: Request
+):
+    """
+    Enhanced chat endpoint with automatic web search integration
+
+    Automatically detects when web search is needed and enriches
+    the LLM context with real-time information from the internet.
+
+    Args:
+        request: ChatRequest containing message and parameters
+        http_request: FastAPI request for authentication
+
+    Returns:
+        ChatResponse with web-enhanced AI response
+    """
+    get_current_user(auth_manager, http_request)
+    logger.info(f"Web-enhanced chat request: {request.message[:100]}...")
+
+    try:
+        # Check if web search is needed
+        needs_web_search = trading_tools.should_use_web_search(request.message)
+
+        web_context = ""
+        if needs_web_search:
+            logger.info("Web search triggered for query")
+
+            # Determine what to search for
+            if "news" in request.message.lower():
+                # Extract symbol if mentioned
+                symbols = ["XAUUSD", "EURUSD", "GBPUSD", "BTCUSD", "ETHUSD"]
+                symbol = next((s for s in symbols if s.lower() in request.message.lower()), "XAUUSD")
+                web_context = trading_news_api.get_symbol_news(symbol)
+
+            elif "calendar" in request.message.lower() or "event" in request.message.lower():
+                web_context = trading_news_api.get_economic_calendar()
+
+            elif "sentiment" in request.message.lower():
+                symbols = ["XAUUSD", "EURUSD", "GBPUSD", "BTCUSD"]
+                symbol = next((s for s in symbols if s.lower() in request.message.lower()), "XAUUSD")
+                web_context = trading_news_api.get_market_sentiment(symbol)
+
+            elif "overview" in request.message.lower() or "market" in request.message.lower():
+                web_context = trading_news_api.get_market_overview()
+
+            else:
+                # General web search
+                web_context = web_search_tool.search_web(request.message, max_results=3)
+
+        # Enhanced RAG context retrieval
+        context_data = rag_enhancer.enhance_query_with_rag(request.message, max_context=request.memory_context)
+
+        # Build enhanced prompt with web context if available
+        if web_context:
+            enhanced_message = f"""User question: {request.message}
+
+📡 REAL-TIME INFORMATION FROM THE WEB:
+{web_context}
+
+Please provide a comprehensive answer using both the above real-time information and your knowledge."""
+        else:
+            enhanced_message = request.message
+
+        # Build contextual prompt with enhanced memory
+        messages = build_enhanced_contextual_prompt(enhanced_message, context_data)
+
+        # Get response from Ollama
+        ai_response = await ollama_client.chat_completion(messages)
+
+        # Store conversation in memory
+        try:
+            memory_manager.add_memory(request.message, ai_response)
+            memory_used = True
+        except Exception as e:
+            logger.warning(f"Failed to store conversation in memory: {e}")
+            memory_used = False
+
+        # Return response
+        response = ChatResponse(
+            response=ai_response,
+            model=request.model,
+            timestamp=datetime.now().isoformat(),
+            memory_used=memory_used
+        )
+
+        logger.info(f"Generated web-enhanced response of length: {len(ai_response)}")
+        return response
+
+    except Exception as e:
+        logger.error(f"Web-enhanced chat endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.on_event("shutdown")
 async def shutdown_event():

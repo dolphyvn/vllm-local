@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Trading Analysis Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.min.js"></script>
+    <style>
+        .chart-container { position: relative; height: 400px; }
+        .indicator-overlay { background: rgba(0,0,0,0.8); }
+        .pattern-highlight { background: rgba(34, 197, 94, 0.1); }
+        .resistance-line { border-top: 2px dashed #ef4444; }
+        .support-line { border-top: 2px dashed #22c55e; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white">
+    <!-- Header -->
+    <header class="bg-gray-800 border-b border-gray-700">
+        <div class="container mx-auto px-4 py-4">
+            <div class="flex justify-between items-center">
+                <h1 class="text-2xl font-bold text-yellow-400">📈 Live Trading Analysis</h1>
+                <div class="flex items-center space-x-4">
+                    <span id="connection-status" class="px-3 py-1 rounded-full text-sm bg-green-600">Connected</span>
+                    <span id="last-update" class="text-sm text-gray-400">Last: --:--:--</span>
+                    <button onclick="refreshData()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition">🔄 Refresh</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 py-6">
+        <!-- Market Overview -->
+        <section class="mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <h3 class="text-sm text-gray-400 mb-1">Current Price</h3>
+                    <p id="current-price" class="text-2xl font-bold text-yellow-400">$2,642.15</p>
+                    <p id="price-change" class="text-sm text-green-400">+0.45%</p>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <h3 class="text-sm text-gray-400 mb-1">RSI (14)</h3>
+                    <p id="rsi-value" class="text-2xl font-bold">48.8</p>
+                    <p class="text-sm text-gray-400">Neutral</p>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <h3 class="text-sm text-gray-400 mb-1">VWAP</h3>
+                    <p id="vwap-value" class="text-2xl font-bold">$2,641.20</p>
+                    <p class="text-sm text-gray-400">Above VWAP</p>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <h3 class="text-sm text-gray-400 mb-1">Volume</h3>
+                    <p id="volume-value" class="text-2xl font-bold">1,234</p>
+                    <p class="text-sm text-gray-400">Avg: 1,567</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Control Panel -->
+        <section class="mb-6 bg-gray-800 rounded-lg p-4">
+            <div class="flex flex-wrap gap-4 items-center">
+                <div>
+                    <label class="text-sm text-gray-400">Timeframe:</label>
+                    <select id="timeframe" class="ml-2 bg-gray-700 rounded px-3 py-1">
+                        <option value="M1">M1</option>
+                        <option value="M5">M5</option>
+                        <option value="M15" selected>M15</option>
+                        <option value="M30">M30</option>
+                        <option value="H1">H1</option>
+                        <option value="H4">H4</option>
+                        <option value="D1">D1</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-sm text-gray-400">Indicators:</label>
+                    <div class="inline-flex gap-2 ml-2">
+                        <label class="flex items-center">
+                            <input type="checkbox" id="show-rsi" checked class="mr-1">
+                            <span class="text-sm">RSI</span>
+                        </label>
+                        <label class="flex items-center">
+                            <input type="checkbox" id="show-ema" checked class="mr-1">
+                            <span class="text-sm">EMAs</span>
+                        </label>
+                        <label class="flex items-center">
+                            <input type="checkbox" id="show-vwap" checked class="mr-1">
+                            <span class="text-sm">VWAP</span>
+                        </label>
+                        <label class="flex items-center">
+                            <input type="checkbox" id="show-bollinger" class="mr-1">
+                            <span class="text-sm">Bollinger</span>
+                        </label>
+                        <label class="flex items-center">
+                            <input type="checkbox" id="show-volume" checked class="mr-1">
+                            <span class="text-sm">Volume</span>
+                        </label>
+                    </div>
+                </div>
+                <div>
+                    <label class="text-sm text-gray-400">Pattern Detection:</label>
+                    <button onclick="detectPatterns()" class="ml-2 px-3 py-1 bg-purple-600 hover:bg-purple-700 rounded text-sm transition">
+                        🔍 Detect Patterns
+                    </button>
+                </div>
+                <div>
+                    <label class="text-sm text-gray-400">AI Analysis:</label>
+                    <button onclick="requestAIAnalysis()" class="ml-2 px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-sm transition">
+                        🧠 Analyze
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Main Chart Area -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <!-- Price Chart -->
+            <div class="lg:col-span-2 bg-gray-800 rounded-lg p-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-bold">XAUUSD - Price Chart</h2>
+                    <div class="flex gap-2">
+                        <button onclick="zoomIn()" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm">+</button>
+                        <button onclick="zoomOut()" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm">-</button>
+                        <button onclick="resetZoom()" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm">Reset</button>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="priceChart"></canvas>
+                </div>
+                <!-- Drawing Tools -->
+                <div class="mt-4 flex flex-wrap gap-2">
+                    <button onclick="setTool('trendline')" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm">📏 Trendline</button>
+                    <button onclick="setTool('horizontal')" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm">➖ Horizontal</button>
+                    <button onclick="setTool('rectangle')" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm">▭ Rectangle</button>
+                    <button onclick="setTool('fibonacci')" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm">📐 Fibonacci</button>
+                    <button onclick="clearDrawings()" class="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm">🗑️ Clear</button>
+                </div>
+            </div>
+
+            <!-- Analysis Panel -->
+            <div class="bg-gray-800 rounded-lg p-4">
+                <h2 class="text-xl font-bold mb-4">Technical Analysis</h2>
+
+                <!-- Current Signals -->
+                <div class="mb-6">
+                    <h3 class="text-sm font-semibold text-gray-400 mb-2">Current Signals</h3>
+                    <div id="signals-list" class="space-y-2">
+                        <div class="p-2 bg-gray-700 rounded text-sm">
+                            <span class="text-yellow-400">●</span> Neutral - RSI 48.8
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pattern Recognition -->
+                <div class="mb-6">
+                    <h3 class="text-sm font-semibold text-gray-400 mb-2">Detected Patterns</h3>
+                    <div id="patterns-list" class="space-y-2">
+                        <div class="text-sm text-gray-500">No patterns detected yet</div>
+                    </div>
+                </div>
+
+                <!-- Support/Resistance -->
+                <div class="mb-6">
+                    <h3 class="text-sm font-semibold text-gray-400 mb-2">Key Levels</h3>
+                    <div id="levels-list" class="space-y-1">
+                        <div class="flex justify-between text-sm">
+                            <span class="text-red-400">R1:</span>
+                            <span>$2,645.80</span>
+                        </div>
+                        <div class="flex justify-between text-sm">
+                            <span class="text-green-400">S1:</span>
+                            <span>$2,638.50</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AI Analysis -->
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-400 mb-2">AI Analysis</h3>
+                    <div id="ai-analysis" class="p-3 bg-gray-700 rounded text-sm">
+                        <button onclick="requestAIAnalysis()" class="w-full text-center text-gray-400">
+                            Click "Analyze" for AI insights
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Indicator Charts -->
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <!-- RSI Chart -->
+            <div class="bg-gray-800 rounded-lg p-4">
+                <h3 class="text-lg font-bold mb-4">RSI (14)</h3>
+                <div style="height: 150px;">
+                    <canvas id="rsiChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Volume Chart -->
+            <div class="bg-gray-800 rounded-lg p-4">
+                <h3 class="text-lg font-bold mb-4">Volume</h3>
+                <div style="height: 150px;">
+                    <canvas id="volumeChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Manual Analysis Tools -->
+        <section class="bg-gray-800 rounded-lg p-4">
+            <h2 class="text-xl font-bold mb-4">Manual Analysis Tools</h2>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Trade Simulator -->
+                <div>
+                    <h3 class="text-lg font-semibold mb-3">Trade Simulator</h3>
+                    <div class="space-y-3">
+                        <div class="flex gap-2">
+                            <button onclick="simulateTrade('BUY')" class="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 rounded transition">BUY</button>
+                            <button onclick="simulateTrade('SELL')" class="flex-1 px-3 py-2 bg-red-600 hover:bg-red-700 rounded transition">SELL</button>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="text-sm text-gray-400">Entry Price</label>
+                                <input type="number" id="sim-entry" class="w-full bg-gray-700 rounded px-2 py-1" step="0.01">
+                            </div>
+                            <div>
+                                <label class="text-sm text-gray-400">Stop Loss</label>
+                                <input type="number" id="sim-stop" class="w-full bg-gray-700 rounded px-2 py-1" step="0.01">
+                            </div>
+                            <div>
+                                <label class="text-sm text-gray-400">Take Profit</label>
+                                <input type="number" id="sim-profit" class="w-full bg-gray-700 rounded px-2 py-1" step="0.01">
+                            </div>
+                            <div>
+                                <label class="text-sm text-gray-400">Position Size</label>
+                                <input type="number" id="sim-size" class="w-full bg-gray-700 rounded px-2 py-1" value="1" step="0.1">
+                            </div>
+                        </div>
+                        <div class="bg-gray-700 rounded p-3 text-sm">
+                            <div class="flex justify-between">
+                                <span>Risk/Reward:</span>
+                                <span id="sim-rr">1:2.0</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>Potential Profit:</span>
+                                <span id="sim-profit" class="text-green-400">$20.00</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>Potential Loss:</span>
+                                <span id="sim-loss" class="text-red-400">$10.00</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Notes & Journal -->
+                <div>
+                    <h3 class="text-lg font-semibold mb-3">Trading Notes</h3>
+                    <textarea id="trading-notes"
+                        class="w-full h-32 bg-gray-700 rounded p-3 text-sm resize-none"
+                        placeholder="Enter your analysis notes, observations, and trade ideas..."></textarea>
+                    <div class="mt-2 flex gap-2">
+                        <button onclick="saveNotes()" class="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm transition">💾 Save</button>
+                        <button onclick="exportAnalysis()" class="px-3 py-1 bg-purple-600 hover:bg-purple-700 rounded text-sm transition">📊 Export</button>
+                        <button onclick="shareAnalysis()" class="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-sm transition">📤 Share</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- AI Analysis Modal -->
+    <div id="aiModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-gray-800 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold">🧠 AI Trading Analysis</h3>
+                <button onclick="closeAIModal()" class="text-gray-400 hover:text-white">✕</button>
+            </div>
+            <div id="aiModalContent" class="space-y-4">
+                <!-- AI content will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/live-analysis.js"></script>
+</body>
+</html>

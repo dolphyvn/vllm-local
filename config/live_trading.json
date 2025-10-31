@@ -1,0 +1,21 @@
+{
+  "data_source": "./data/XAUUSD_PERIOD_M15_0.csv",
+  "rag_base_url": "http://localhost:8080",
+  "live_data_dir": "./data/live",
+  "update_interval": 60,
+  "alert_check_interval": 60,
+  "alert_config": {
+    "min_confidence": 70,
+    "min_risk_reward": 1.5,
+    "enabled_sessions": [
+      "London",
+      "New York",
+      "Asia/London Overlap",
+      "London/NY Overlap"
+    ],
+    "max_alerts_per_hour": 10,
+    "cooldown_minutes": 30
+  },
+  "webhook_url": null,
+  "timezone": "UTC"
+}

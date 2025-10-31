@@ -1,0 +1,18 @@
+MARKET CONTEXT:
+
+TRADING SESSION: NEW YORK
+TIME: 19:04
+
+RECENT PRICE ACTION:
+- Bullish Candles: 48 of 100
+- Avg Candle Size: 1.58
+- Strongest Move: 0.14%
+
+VOLUME ANALYSIS:
+- Current: 393
+- Average: 620
+- Trend: Decreasing
+
+SWING POINTS (Last 100 periods):
+- Swing Highs: 22
+- Swing Lows: 26
