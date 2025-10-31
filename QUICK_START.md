@@ -118,26 +118,55 @@ python scripts/pattern_retriever.py \
 
 **Output:** LLM-optimized summary with statistics
 
-## Integration with main.py
+## Integration with main.py ✅ COMPLETE
 
 ### Current Status
 - Core pipeline: ✅ Complete
 - ChromaDB integration: ✅ Working
 - LLM query helper: ✅ Ready
+- /upload endpoint integration: ✅ Complete (2025-10-31)
 
-### TODO: Update /upload endpoint
+### /upload Endpoint Behavior
 
-Location: `main.py:1641` (`upload_mt5_csv` function)
+Location: `main.py:1689` (`upload_mt5_csv` function)
 
-**Add to endpoint:**
-```python
-# After saving CSV file, trigger processing
-from scripts.mt5_to_structured_json import MT5ToStructuredJSON
-from scripts.pattern_detector import PatternDetector
-from scripts.rag_structured_feeder import RAGStructuredFeeder
+**Automatic Processing:**
 
-# Process in background
-background_tasks.add_task(process_and_feed, file_path, symbol, timeframe)
+1. **Full History Files (`*_0.csv`)**
+   - Automatically triggers RAG pipeline in background
+   - Pipeline: CSV → Structured JSON → Pattern Detection → ChromaDB
+   - Response: "RAG pipeline processing started in background"
+   - Use case: Build comprehensive pattern database for historical analysis
+
+2. **Live Data Files (`*_200.csv`)**
+   - Saves file only (no processing)
+   - Response: "Ready for LLM analysis"
+   - Use case: Real-time LLM queries on current market conditions
+
+3. **Other CSV Files**
+   - Standard save to data directory
+   - Response: "Uploaded successfully"
+
+**Example API Calls:**
+
+```bash
+# Upload full history (triggers RAG processing)
+curl -X POST http://localhost:8000/upload \
+  -F "file=@data/XAUUSD_PERIOD_M15_0.csv" \
+  -F "symbol=XAUUSD" \
+  -F "timeframe=M15" \
+  -F "candles=0"
+
+# Response: {"success": true, "rag_processing": true, ...}
+
+# Upload live data (no processing)
+curl -X POST http://localhost:8000/upload \
+  -F "file=@data/XAUUSD_PERIOD_M15_200.csv" \
+  -F "symbol=XAUUSD" \
+  -F "timeframe=M15" \
+  -F "candles=200"
+
+# Response: {"success": true, "rag_processing": false, ...}
 ```
 
 ### Using PatternRetriever in LLM queries

@@ -121,6 +121,17 @@ MT5 CSV → Structured JSON → Pattern Detection → ChromaDB (structured) → 
 - [x] Verify Market Profile data in JSON output
 - [x] Update format version to 2.1_market_profile
 
+### Phase 7: Main.py /upload Integration ✅ COMPLETE (2025-10-31)
+- [x] Create background processing function (process_full_history_to_rag)
+- [x] Add BackgroundTasks parameter to /upload endpoint
+- [x] Implement conditional logic for file type detection
+- [x] *_0.csv files → Trigger RAG pipeline in background
+- [x] *_200.csv files → Save only (for LLM analysis)
+- [x] Add rag_processing flag to API response
+- [x] Update success messages per file type
+- [x] Test pipeline integration
+- [x] Update documentation (QUICK_START.md)
+
 ## Key Design Decisions
 
 ### 1. **Structured vs Narrative**
