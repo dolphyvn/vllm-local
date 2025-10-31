@@ -47,28 +47,29 @@ class MT5ToStructuredJSON:
         """
         print(f"📂 Loading: {csv_path}")
 
-        # Try multiple encodings
+        # Try multiple encodings with different delimiters
         encodings = ['utf-16-le', 'utf-16', 'utf-8', 'latin-1', 'cp1252']
+        delimiters = [',', '\t', ';']
 
         for encoding in encodings:
-            try:
-                print(f"   Trying {encoding}...", end=" ")
-                df = pd.read_csv(csv_path, encoding=encoding)
+            for delimiter in delimiters:
+                try:
+                    print(f"   Trying {encoding} with delimiter '{delimiter}'...", end=" ")
+                    df = pd.read_csv(csv_path, encoding=encoding, delimiter=delimiter)
 
-                # Validate we got proper columns
-                if all('Unnamed' in str(col) for col in df.columns[:3]):
-                    print("❌ Unnamed columns, trying skiprows...")
-                    df = pd.read_csv(csv_path, encoding=encoding, skiprows=1)
+                    # Check if we got multiple columns
+                    if len(df.columns) > 3:
+                        print(f"✅ Success! Found {len(df.columns)} columns")
+                        self.df = df
+                        return True
+                    else:
+                        print(f"⏭️  Only {len(df.columns)} column(s)")
 
-                print(f"✅ Success!")
-                self.df = df
-                return True
+                except Exception as e:
+                    print(f"❌")
+                    continue
 
-            except Exception as e:
-                print(f"❌ Failed: {e}")
-                continue
-
-        print(f"❌ Could not read CSV with any encoding")
+        print(f"❌ Could not read CSV with any encoding/delimiter combination")
         return False
 
     def normalize_columns(self) -> bool:
@@ -76,6 +77,15 @@ class MT5ToStructuredJSON:
         print(f"🔧 Normalizing columns...")
 
         if self.df is None:
+            return False
+
+        print(f"   Available columns: {list(self.df.columns)}")
+
+        # Check if we have only one column (corrupted format)
+        if len(self.df.columns) == 1:
+            print(f"⚠️  Single column detected, likely encoding issue. Trying alternative parsing...")
+            # This is a corrupted file - skip it
+            print(f"   Current column: {repr(self.df.columns[0][:50])}...")
             return False
 
         # Column mapping for different formats
@@ -90,7 +100,8 @@ class MT5ToStructuredJSON:
             'Close': 'close',
             'Volume': 'volume',
             'TickVolume': 'volume',
-            'tick_volume': 'volume'
+            'tick_volume': 'volume',
+            'Candle': 'candle_index'
         }
 
         # Apply mapping

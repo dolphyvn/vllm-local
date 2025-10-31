@@ -96,7 +96,13 @@ class PatternRetriever:
             }
 
             if filters:
-                query_params["where"] = filters
+                # ChromaDB requires multiple filters to be wrapped in $and
+                if len(filters) > 1:
+                    query_params["where"] = {
+                        "$and": [{k: v} for k, v in filters.items()]
+                    }
+                else:
+                    query_params["where"] = filters
 
             # Query ChromaDB
             results = self.collection.query(**query_params)
