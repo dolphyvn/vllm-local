@@ -1446,3 +1446,212 @@ function sendPrompt(prompt) {
         window.app.sendPrompt(prompt);
     }
 }
+
+// Trading Analysis Shortcuts
+function sendTradingCommand(command) {
+    if (window.app) {
+        // Add trading analysis context
+        const enhancedCommand = `[Trading Analysis] ${command}`;
+        window.app.sendPrompt(enhancedCommand);
+
+        // Visual feedback
+        const shortcuts = document.querySelectorAll('.shortcut-btn');
+        shortcuts.forEach(btn => {
+            if (btn.textContent.toLowerCase().includes(command.toLowerCase()) ||
+                btn.onclick.toString().includes(command)) {
+                btn.style.transform = 'scale(0.95)';
+                setTimeout(() => {
+                    btn.style.transform = '';
+                }, 200);
+            }
+        });
+    }
+}
+
+
+// Enhanced message display for trading analysis
+function displayTradingMessage(content, isUser = false) {
+    const messageContainer = document.createElement('div');
+    messageContainer.className = `message ${isUser ? 'user' : 'assistant'} trading-analysis`;
+
+    const messageContent = document.createElement('div');
+    messageContent.className = 'message-content';
+
+    // Parse and enhance trading content
+    const enhancedContent = enhanceTradingContent(content);
+    messageContent.innerHTML = enhancedContent;
+
+    messageContainer.appendChild(messageContent);
+
+    const messagesContainer = document.querySelector('.messages');
+    if (messagesContainer) {
+        messagesContainer.appendChild(messageContainer);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    return messageContainer;
+}
+
+// Enhance trading content with visual elements
+function enhanceTradingContent(content) {
+    let enhanced = content;
+
+    // Add indicator badges
+    enhanced = enhanced.replace(
+        /(RSI|MACD|EMA|VWAP|ATR|BB|SMA)\s*:?\s*([\d.]+)/gi,
+        '<span class="indicator">$1: $2</span>'
+    );
+
+    // Add sentiment indicators
+    enhanced = enhanced.replace(
+        /(bullish|bearish|neutral|overbought|oversold)/gi,
+        (match) => `<span class="indicator ${match.toLowerCase()}">${match.toUpperCase()}</span>`
+    );
+
+    // Add price levels
+    enhanced = enhanced.replace(
+        /(support|resistance)\s*:?\s*\$?([\d.]+)/gi,
+        '<div class="price-level $1"><span>$1:</span><span>$$2</span></div>'
+    );
+
+    // Add live indicator for real-time data
+    if (content.toLowerCase().includes('live') || content.toLowerCase().includes('current')) {
+        enhanced = `<span class="live-indicator">LIVE</span> ${enhanced}`;
+    }
+
+    // Add chart placeholder for analysis requests
+    if (content.toLowerCase().includes('chart') || content.toLowerCase().includes('technical analysis')) {
+        enhanced += `
+        <div class="trading-chart-placeholder">
+            <i class="fas fa-chart-line"></i>
+            Trading Chart Visualization
+        </div>`;
+    }
+
+    return enhanced;
+}
+
+// Check if message is trading-related
+function isTradingMessage(content) {
+    const tradingKeywords = [
+        'trade', 'trading', 'market', 'price', 'buy', 'sell', 'signal',
+        'indicator', 'rsi', 'macd', 'ema', 'sma', 'bollinger', 'volatility',
+        'trend', 'support', 'resistance', 'breakout', 'reversal', 'momentum',
+        'xauusd', 'gold', 'forex', 'currency', 'pip', 'lot', 'leverage',
+        'stop loss', 'take profit', 'risk/reward', 'timeframe', 'candlestick',
+        'live', 'current', 'analysis'
+    ];
+
+    return tradingKeywords.some(keyword =>
+        content.toLowerCase().includes(keyword.toLowerCase())
+    );
+}
+
+// Setup trading shortcuts functionality (called after app initialization)
+function setupTradingShortcuts() {
+    // Setup trading shortcuts toggle
+    const toggleShortcuts = document.getElementById('toggleShortcuts');
+    if (toggleShortcuts) {
+        toggleShortcuts.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent event bubbling
+            toggleShortcutsPanel();
+        });
+    }
+
+    // Setup shortcuts header click (but not the toggle button)
+    const shortcutsHeader = document.querySelector('.shortcuts-header');
+    if (shortcutsHeader) {
+        shortcutsHeader.addEventListener('click', (e) => {
+            if (!e.target.closest('.toggle-shortcuts')) {
+                toggleShortcutsPanel();
+            }
+        });
+    }
+
+    // Restore shortcuts state from localStorage
+    const shortcutsOpen = localStorage.getItem('shortcuts_open');
+    if (shortcutsOpen === 'false') {
+        const content = document.getElementById('shortcutsContent');
+        const toggle = document.getElementById('toggleShortcuts');
+        const shortcutsPanel = document.getElementById('tradingShortcuts');
+        if (content && toggle) {
+            content.classList.add('collapsed');
+            toggle.classList.add('collapsed');
+            // Start collapsed
+            setTimeout(() => {
+                if (shortcutsPanel) {
+                    shortcutsPanel.style.maxHeight = '60px';
+                }
+            }, 100);
+        }
+    }
+}
+
+// Toggle trading shortcuts panel
+function toggleShortcutsPanel() {
+    const content = document.getElementById('shortcutsContent');
+    const toggle = document.getElementById('toggleShortcuts');
+    const shortcutsPanel = document.getElementById('tradingShortcuts');
+
+    if (!content || !toggle || !shortcutsPanel) return;
+
+    const isCollapsed = content.classList.contains('collapsed');
+
+    if (isCollapsed) {
+        // Expand
+        content.classList.remove('collapsed');
+        toggle.classList.remove('collapsed');
+        shortcutsPanel.style.maxHeight = '50vh';
+        localStorage.setItem('shortcuts_open', 'true');
+    } else {
+        // Collapse
+        content.classList.add('collapsed');
+        toggle.classList.add('collapsed');
+        shortcutsPanel.style.maxHeight = '60px';
+        localStorage.setItem('shortcuts_open', 'false');
+    }
+}
+
+// Initialize trading shortcuts functionality
+document.addEventListener('DOMContentLoaded', () => {
+    window.app = new FinancialAssistantApp();
+
+    // Setup trading shortcuts after app is ready
+    setTimeout(() => {
+        setupTradingShortcuts();
+    }, 500);
+
+    // Override original sendPrompt to add trading enhancements
+    if (window.app) {
+        const originalSendPrompt = window.app.sendPrompt.bind(window.app);
+        window.app.sendPrompt = function(message) {
+            // Check if this is a trading-related message
+            if (isTradingMessage(message)) {
+                // Add trading context to the message
+                const enhancedMessage = message.includes('[Trading Analysis]')
+                    ? message
+                    : `[Trading Analysis] ${message}`;
+
+                // Call original function with enhanced message
+                return originalSendPrompt(enhancedMessage);
+            }
+
+            // Call original function for non-trading messages
+            return originalSendPrompt(message);
+        };
+
+        // Override message display to add trading enhancements
+        if (window.app.displayMessage) {
+            const originalDisplayMessage = window.app.displayMessage.bind(window.app);
+            window.app.displayMessage = function(content, isUser = false) {
+                if (isTradingMessage(content) && !isUser) {
+                    // Use enhanced trading message display
+                    displayTradingMessage(content, isUser);
+                } else {
+                    // Use original display
+                    return originalDisplayMessage(content, isUser);
+                }
+            };
+        }
+    }
+});

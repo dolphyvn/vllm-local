@@ -140,6 +140,55 @@
                 </div>
             </div>
 
+            <!-- Trading Analysis Shortcuts -->
+            <div class="trading-shortcuts" id="tradingShortcuts">
+                <div class="shortcuts-header">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Trading Analysis</span>
+                    <button class="toggle-shortcuts" id="toggleShortcuts">
+                        <i class="fas fa-chevron-up"></i>
+                    </button>
+                </div>
+                <div class="shortcuts-content" id="shortcutsContent">
+                    <div class="shortcut-group">
+                        <span class="group-label">Quick Analysis:</span>
+                        <button class="shortcut-btn" onclick="sendTradingCommand('analyze current market')">
+                            📊 Current Market
+                        </button>
+                        <button class="shortcut-btn" onclick="sendTradingCommand('analyze XAUUSD technical indicators')">
+                            📈 Technical Analysis
+                        </button>
+                        <button class="shortcut-btn" onclick="sendTradingCommand('detect trading patterns')">
+                            🔍 Pattern Detection
+                        </button>
+                    </div>
+                    <div class="shortcut-group">
+                        <span class="group-label">Trade Ideas:</span>
+                        <button class="shortcut-btn" onclick="sendTradingCommand('Should I buy or sell XAUUSD right now?')">
+                            💡 Buy/Sell Signal
+                        </button>
+                        <button class="shortcut-btn" onclick="sendTradingCommand('What are the key support and resistance levels for gold?')">
+                            📏 Key Levels
+                        </button>
+                        <button class="shortcut-btn" onclick="sendTradingCommand('Analyze risk/reward for current setup')">
+                            ⚖️ Risk Analysis
+                        </button>
+                    </div>
+                    <div class="shortcut-group">
+                        <span class="group-label">Live Data:</span>
+                        <button class="shortcut-btn" onclick="sendTradingCommand('analyze live trading data')">
+                            🔄 Live Analysis
+                        </button>
+                        <button class="shortcut-btn" onclick="sendTradingCommand('check market sentiment')">
+                            💭 Market Sentiment
+                        </button>
+                        <button class="shortcut-btn" onclick="sendTradingCommand('analyze recent price action')">
+                            📊 Price Action
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Input Area -->
             <div class="input-container">
                 <div class="input-wrapper">

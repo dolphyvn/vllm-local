@@ -1047,3 +1047,246 @@ body {
         opacity: 0.7;
     }
 }
+
+/* Trading Analysis Shortcuts */
+.trading-shortcuts {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    margin: 8px 16px;
+    overflow: hidden;
+    transition: var(--transition);
+    max-height: 50vh; /* Limit maximum height */
+}
+
+.shortcuts-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+    user-select: none;
+}
+
+.shortcuts-header i {
+    color: var(--accent);
+    margin-right: 8px;
+}
+
+.shortcuts-header span {
+    font-weight: 500;
+    flex: 1;
+}
+
+.toggle-shortcuts {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: var(--transition);
+}
+
+.toggle-shortcuts:hover {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.toggle-shortcuts.collapsed {
+    transform: rotate(180deg);
+}
+
+.shortcuts-content {
+    padding: 16px;
+    max-height: 40vh;
+    overflow-y: auto;
+    transition: all 0.3s ease;
+    opacity: 1;
+}
+
+.shortcuts-content.collapsed {
+    max-height: 0;
+    padding: 0 16px;
+    opacity: 0;
+    overflow: hidden;
+}
+
+.shortcut-group {
+    margin-bottom: 16px;
+}
+
+.shortcut-group:last-child {
+    margin-bottom: 0;
+}
+
+.group-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.shortcut-btn {
+    display: inline-block;
+    margin: 4px 8px 4px 0;
+    padding: 6px 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: var(--transition);
+    text-decoration: none;
+}
+
+.shortcut-btn:hover {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+    transform: translateY(-1px);
+}
+
+.shortcut-btn:active {
+    transform: translateY(0);
+}
+
+/* Trading message styling */
+.message.trading-analysis {
+    border-left: 4px solid var(--accent);
+}
+
+.message.trading-analysis .message-content {
+    background: var(--bg-secondary);
+}
+
+.message-content .trading-data {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 12px;
+    margin: 8px 0;
+    border: 1px solid var(--border-color);
+}
+
+.trading-data .indicator {
+    display: inline-block;
+    margin: 2px 6px 2px 0;
+    padding: 2px 8px;
+    background: var(--accent);
+    color: white;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.trading-data .indicator.bullish {
+    background: var(--success);
+}
+
+.trading-data .indicator.bearish {
+    background: var(--error);
+}
+
+.trading-data .indicator.neutral {
+    background: var(--warning);
+}
+
+.trading-data .price-levels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.price-level {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.price-level.support {
+    background: rgba(26, 127, 55, 0.1);
+    color: var(--success);
+}
+
+.price-level.resistance {
+    background: rgba(207, 34, 46, 0.1);
+    color: var(--error);
+}
+
+.trading-chart-placeholder {
+    background: var(--bg-tertiary);
+    border: 2px dashed var(--border-color);
+    border-radius: 6px;
+    height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    margin: 8px 0;
+    font-size: 14px;
+}
+
+/* Live trading status indicators */
+.live-indicator {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    background: rgba(26, 127, 55, 0.1);
+    color: var(--success);
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+    margin-left: 8px;
+}
+
+.live-indicator::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    background: var(--success);
+    border-radius: 50%;
+    margin-right: 4px;
+    animation: pulse 2s infinite;
+}
+
+/* Compact trading shortcuts */
+.trading-shortcuts.compact {
+    margin: 4px 16px;
+}
+
+.trading-shortcuts.compact .shortcuts-content {
+    padding: 8px 12px;
+}
+
+.trading-shortcuts.compact .shortcut-btn {
+    margin: 2px 4px 2px 0;
+    padding: 4px 8px;
+    font-size: 11px;
+}
+
+.trading-shortcuts.compact .group-label {
+    font-size: 10px;
+    margin-bottom: 6px;
+}
+
+.trading-shortcuts.compact .shortcut-group {
+    margin-bottom: 8px;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}

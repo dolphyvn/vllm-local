@@ -10,7 +10,7 @@ import aiohttp
 import base64
 import mimetypes
 from typing import Dict, Any, List, Optional
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, UploadFile, File
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
@@ -23,6 +23,8 @@ import aiofiles
 import uuid
 import queue
 import threading
+import pandas as pd
+import re
 
 from memory import MemoryManager
 from lessons import LessonManager
@@ -37,6 +39,578 @@ from knowledge_feeder import (
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# LLM client for trading analysis
+try:
+    from openai import AsyncOpenAI
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    OLLAMA_AVAILABLE = False
+    AsyncOpenAI = None
+
+# Ollama client configuration
+OLLAMA_BASE_URL = "http://localhost:11434"
+OLLAMA_MODEL = "llama3.1:8b"
+
+async def get_ollama_client():
+    """Get or create Ollama client"""
+    if not OLLAMA_AVAILABLE:
+        return None
+    return AsyncOpenAI(base_url=OLLAMA_BASE_URL, api_key="ollama")
+
+def _is_ollama_available() -> bool:
+    """Check if Ollama is available"""
+    if not OLLAMA_AVAILABLE:
+        return False
+    try:
+        import requests
+        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=2)
+        return response.status_code == 200
+    except:
+        return False
+
+def _is_trading_query(query_text: str) -> bool:
+    """Check if query is trading-related"""
+    trading_keywords = [
+        'trade', 'trading', 'market', 'price', 'buy', 'sell', 'signal',
+        'indicator', 'rsi', 'macd', 'ema', 'sma', 'bollinger', 'volatility',
+        'trend', 'support', 'resistance', 'breakout', 'reversal', 'momentum',
+        'xauusd', 'gold', 'forex', 'currency', 'pip', 'lot', 'leverage',
+        'stop loss', 'take profit', 'risk/reward', 'timeframe', 'candlestick'
+    ]
+    query_lower = query_text.lower()
+    return any(keyword in query_lower for keyword in trading_keywords)
+
+async def get_llm_trading_analysis(query_text: str, context_data: Dict[str, Any]) -> Optional[str]:
+    """Get LLM analysis for trading queries"""
+    if not _is_ollama_available():
+        return None
+
+    try:
+        client = await get_ollama_client()
+        if not client:
+            return None
+
+        prompt = _create_trading_analysis_prompt(query_text, context_data)
+
+        response = await client.chat.completions.create(
+            model=OLLAMA_MODEL,
+            messages=[
+                {"role": "system", "content": "You are an expert trading analyst with deep knowledge of technical analysis, risk management, and market psychology."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=1024,
+            temperature=0.3
+        )
+
+        return response.choices[0].message.content.strip()
+
+    except Exception as e:
+        logger.error(f"Error getting LLM trading analysis: {e}")
+        return None
+
+def _create_trading_analysis_prompt(query_text: str, context_data: Dict[str, Any]) -> str:
+    """Create enhanced trading analysis prompt for LLM"""
+
+    # Extract relevant context
+    similar_patterns = context_data.get('similar_patterns', [])
+    enhanced_context = context_data.get('enhanced_context', {})
+    current_indicators = enhanced_context.get('current_indicators', {})
+    base_recommendation = context_data.get('base_recommendation', {})
+
+    # Determine query type for specialized prompts
+    query_type = _classify_trading_query(query_text)
+
+    prompt = f"""
+=== TRADING ANALYSIS REQUEST ===
+Query: {query_text}
+Query Type: {query_type}
+Analysis Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC
+
+CURRENT MARKET CONDITIONS:
+"""
+
+    # Add indicator data with context
+    if current_indicators:
+        prompt += "\n📊 Technical Indicators:\n"
+
+        # Categorize indicators
+        momentum_indicators = {}
+        trend_indicators = {}
+        volatility_indicators = {}
+        volume_indicators = {}
+
+        for indicator, value in current_indicators.items():
+            if isinstance(value, (int, float)):
+                if 'rsi' in indicator.lower() or 'macd' in indicator.lower():
+                    momentum_indicators[indicator] = value
+                elif 'ema' in indicator.lower() or 'sma' in indicator.lower() or 'vwap' in indicator.lower():
+                    trend_indicators[indicator] = value
+                elif 'atr' in indicator.lower() or 'bb' in indicator.lower():
+                    volatility_indicators[indicator] = value
+                elif 'volume' in indicator.lower():
+                    volume_indicators[indicator] = value
+
+        if momentum_indicators:
+            prompt += "  Momentum:\n"
+            for indicator, value in momentum_indicators.items():
+                interpretation = _interpret_indicator(indicator, value)
+                prompt += f"    - {indicator.upper()}: {value:.2f} ({interpretation})\n"
+
+        if trend_indicators:
+            prompt += "  Trend:\n"
+            for indicator, value in trend_indicators.items():
+                interpretation = _interpret_indicator(indicator, value)
+                prompt += f"    - {indicator.upper()}: {value:.2f} ({interpretation})\n"
+
+        if volatility_indicators:
+            prompt += "  Volatility:\n"
+            for indicator, value in volatility_indicators.items():
+                interpretation = _interpret_indicator(indicator, value)
+                prompt += f"    - {indicator.upper()}: {value:.2f} ({interpretation})\n"
+
+        if volume_indicators:
+            prompt += "  Volume:\n"
+            for indicator, value in volume_indicators.items():
+                interpretation = _interpret_indicator(indicator, value)
+                prompt += f"    - {indicator.upper()}: {value:.2f} ({interpretation})\n"
+
+    # Add base recommendation from RAG
+    if base_recommendation:
+        prompt += f"\n🤖 RAG System Recommendation:\n"
+        prompt += f"  - Strategy: {base_recommendation.get('strategy', 'HOLD')}\n"
+        prompt += f"  - Confidence: {base_recommendation.get('confidence', 50):.1f}%\n"
+        prompt += f"  - Risk/Reward: {base_recommendation.get('risk_reward_ratio', 0):.1f}:1\n"
+        if base_recommendation.get('signals'):
+            prompt += f"  - Signals: {', '.join(base_recommendation['signals'])}\n"
+
+    # Add similar patterns with detailed analysis
+    if similar_patterns:
+        prompt += f"\n📈 Similar Historical Patterns (top {len(similar_patterns[:3])}):\n"
+        for i, pattern in enumerate(similar_patterns[:3], 1):
+            pattern_data = pattern.get('pattern', {})
+            outcome = pattern.get('outcome', {})
+
+            prompt += f"\n  Pattern {i} - {pattern.get('timeframe', 'Unknown')}:\n"
+
+            # Key metrics
+            if pattern_data:
+                prompt += f"    RSI: {pattern_data.get('rsi', 'N/A')}"
+                if pattern_data.get('ema_20') and pattern_data.get('ema_50'):
+                    prompt += f" | EMA20/50: {pattern_data.get('ema_20', 'N/A')}/{pattern_data.get('ema_50', 'N/A')}"
+                if pattern_data.get('vwap'):
+                    prompt += f" | VWAP: {pattern_data.get('vwap', 'N/A')}"
+                prompt += "\n"
+
+            # Outcome
+            prompt += f"    Result: {outcome.get('result', 'Unknown')}"
+            if outcome.get('confidence'):
+                prompt += f" (Confidence: {outcome['confidence']:.1f}%)"
+            prompt += "\n"
+
+            # Performance if available
+            if outcome.get('future_candles'):
+                future_candle = outcome['future_candles'][0]
+                price_change = future_candle.get('price_change_pct', 0)
+                max_profit = future_candle.get('max_profit_pct', 0)
+                max_loss = future_candle.get('max_loss_pct', 0)
+
+                prompt += f"    Performance: {price_change:+.2f}% | Max: {max_profit:+.2f}% | Min: {max_loss:+.2f}%\n"
+
+    # Add query-specific analysis template
+    prompt += f"\n{'='*50}\n"
+    prompt += f"ANALYSIS REQUIREMENTS ({query_type.upper()}):\n"
+    prompt += f"{'='*50}\n"
+
+    if query_type == "entry_exit":
+        prompt += _get_entry_exit_template()
+    elif query_type == "risk_management":
+        prompt += _get_risk_management_template()
+    elif query_type == "market_analysis":
+        prompt += _get_market_analysis_template()
+    elif query_type == "pattern_recognition":
+        prompt += _get_pattern_recognition_template()
+    else:
+        prompt += _get_general_trading_template()
+
+    prompt += f"\n{'='*50}\n"
+    prompt += "IMPORTANT REMINDERS:\n"
+    prompt += "- This is for educational and analysis purposes only\n"
+    prompt += "- Always use proper risk management (1-2% max per trade)\n"
+    prompt += "- Consider market context and news events\n"
+    prompt += "- Paper trade strategies before real money\n"
+    prompt += f"- Current market session: {_get_current_session()}\n"
+
+    return prompt
+
+def _classify_trading_query(query_text: str) -> str:
+    """Classify the type of trading query"""
+    query_lower = query_text.lower()
+
+    if any(word in query_lower for word in ['entry', 'exit', 'buy', 'sell', 'take profit', 'stop loss']):
+        return "entry_exit"
+    elif any(word in query_lower for word in ['risk', 'position size', 'leverage', 'margin']):
+        return "risk_management"
+    elif any(word in query_lower for word in ['trend', 'momentum', 'volatility', 'market condition']):
+        return "market_analysis"
+    elif any(word in query_lower for word in ['pattern', 'formation', 'setup', 'signal']):
+        return "pattern_recognition"
+    else:
+        return "general"
+
+def _interpret_indicator(indicator: str, value: float) -> str:
+    """Provide quick interpretation of indicator values"""
+    indicator_lower = indicator.lower()
+
+    if 'rsi' in indicator_lower:
+        if value >= 70:
+            return "Overbought"
+        elif value <= 30:
+            return "Oversold"
+        else:
+            return "Neutral"
+    elif 'macd' in indicator_lower:
+        return "Positive" if value > 0 else "Negative"
+    elif 'atr' in indicator_lower:
+        return "High" if value > 0.01 else "Low"
+    elif 'vwap' in indicator_lower:
+        return "Above VWAP" if value > 0 else "Below VWAP"
+    else:
+        return "Normal"
+
+def _get_current_session() -> str:
+    """Get current trading session"""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    hour = now.hour
+
+    if 0 <= hour < 8:
+        return "Asian Session"
+    elif 8 <= hour < 13:
+        return "London Session"
+    elif 13 <= hour < 17:
+        return "US Session"
+    elif 17 <= hour < 22:
+        return "US Late Session"
+    else:
+        return "Pacific Session"
+
+def _get_entry_exit_template() -> str:
+    """Get specialized template for entry/exit analysis"""
+    return """
+Provide specific entry/exit recommendations:
+
+1. **ENTRY ANALYSIS**:
+   - Optimal entry price and timing
+   - Entry confirmation signals
+   - Entry rationale and confluence factors
+
+2. **EXIT STRATEGY**:
+   - Take profit levels (partial/complete)
+   - Stop loss placement and logic
+   - Trailing stop recommendations
+
+3. **POSITION SIZING**:
+   - Recommended position size (% of portfolio)
+   - Risk per trade calculation
+   - Adjustments for volatility
+
+4. **EXECUTION PLAN**:
+   - Order type recommendations
+   - Market vs limit orders
+   - Entry timing and session considerations
+
+5. **TRADE INVALIDATION**:
+   - Conditions that invalidate the setup
+   - Early warning signs
+   - Contingency plans
+"""
+
+def _get_risk_management_template() -> str:
+    """Get specialized template for risk management analysis"""
+    return """
+Focus on risk management and position sizing:
+
+1. **RISK ASSESSMENT**:
+   - Current market risk level
+   - Volatility considerations
+   - Correlation with existing positions
+
+2. **POSITION SIZING**:
+   - Recommended risk per trade (1-2% rule)
+   - Account size considerations
+   - Volatility-adjusted sizing
+
+3. **RISK CONTROLS**:
+   - Stop loss strategy and placement
+   - Maximum drawdown limits
+   - Portfolio heat management
+
+4. **RISK/REWARD OPTIMIZATION**:
+   - Minimum acceptable R/R ratio
+   - Profit target adjustments
+   - Risk scaling methodology
+
+5. **PORTFOLIO CONTEXT**:
+   - Correlation with existing trades
+   - Sector/diversification considerations
+   - Overall portfolio risk balance
+"""
+
+def _get_market_analysis_template() -> str:
+    """Get specialized template for market analysis"""
+    return """
+Provide comprehensive market analysis:
+
+1. **TREND ANALYSIS**:
+   - Short, medium, long-term trend direction
+   - Trend strength and momentum
+   - Potential trend reversal signals
+
+2. **MARKET STRUCTURE**:
+   - Key support and resistance levels
+   - Market structure breaks
+   - Supply/demand zone analysis
+
+3. **VOLATILITY & MOMENTUM**:
+   - Current volatility regime
+   - Momentum shifts and divergences
+   - Volatility expectations
+
+4. **INTERMARKET ANALYSIS**:
+   - Correlated markets influence
+   - Risk-on/risk-off sentiment
+   - Currency strength impacts
+
+5. **MARKET SENTIMENT**:
+   - Recent price action interpretation
+   - Volume and participation analysis
+   - Potential catalysts and risks
+"""
+
+def _get_pattern_recognition_template() -> str:
+    return """
+Provide detailed pattern analysis:
+
+1. **PATTERN IDENTIFICATION**:
+   - Pattern type and completion status
+   - Pattern reliability rating
+   - Timeframe context
+
+2. **PATTERN VALIDATION**:
+   - Confirming signals and confluence
+   - Volume confirmation
+   - Failure risk assessment
+
+3. **PATTERN PROJECTIONS**:
+   - Measured price targets
+   - Time projections
+   - Failure scenarios
+
+4. **HISTORICAL CONTEXT**:
+   - Similar pattern performance
+   - Current market compatibility
+   - Seasonal/periodic factors
+
+5. **TRADING IMPLICATIONS**:
+   - Bias direction and strength
+   - Entry trigger points
+   - Risk parameters for this pattern type
+"""
+
+def _get_general_trading_template() -> str:
+    """Get general trading analysis template"""
+    return """
+Provide comprehensive trading analysis:
+
+1. **MARKET OVERVIEW**:
+   - Current market conditions
+   - Key technical levels
+   - Overall sentiment
+
+2. **TRADING OPPORTUNITIES**:
+   - Potential setups identified
+   - Risk/reward assessment
+   - Confidence level
+
+3. **RISK CONSIDERATIONS**:
+   - Key risk factors
+   - Market uncertainty
+   - Risk mitigation strategies
+
+4. **RECOMMENDATIONS**:
+   - Specific actionable advice
+   - Alternative scenarios
+   - Monitoring requirements
+
+5. **CONFIDENCE & TIMING**:
+   - Analysis confidence (1-10)
+   - Optimal time horizon
+   - Key catalysts to watch
+"""
+
+def generate_enhanced_recommendation_from_analysis(context_data: Dict[str, Any], llm_analysis: str) -> Dict[str, Any]:
+    """Generate enhanced trading recommendation combining RAG and LLM analysis"""
+
+    # Base recommendation from RAG
+    base_recommendation = context_data.get('base_recommendation', {})
+
+    # Parse LLM analysis for key insights
+    llm_insights = _parse_llm_analysis(llm_analysis) if llm_analysis else {}
+
+    enhanced_recommendation = {
+        'strategy': base_recommendation.get('strategy', 'HOLD'),
+        'confidence': base_recommendation.get('confidence', 50),
+        'entry_price': base_recommendation.get('entry_price'),
+        'stop_loss': base_recommendation.get('stop_loss'),
+        'take_profit': base_recommendation.get('take_profit'),
+        'risk_reward_ratio': base_recommendation.get('risk_reward_ratio', 0),
+
+        # Enhanced components
+        'llm_insights': llm_insights,
+        'market_analysis': llm_insights.get('market_analysis', 'No LLM analysis available'),
+        'risk_assessment': llm_insights.get('risk_assessment', 'No risk assessment available'),
+        'enhanced_signals': _combine_signals(base_recommendation, llm_insights),
+        'reasoning': f"RAG Analysis: {base_recommendation.get('reasoning', '')} | LLM Analysis: {llm_insights.get('summary', '')}",
+
+        # Metadata
+        'analysis_sources': ['RAG Database', 'LLM Model'],
+        'analysis_timestamp': datetime.now().isoformat(),
+        'enhanced_confidence': _calculate_enhanced_confidence(base_recommendation, llm_insights)
+    }
+
+    return enhanced_recommendation
+
+def _parse_llm_analysis(llm_analysis: str) -> Dict[str, Any]:
+    """Parse LLM analysis response for key insights"""
+    insights = {
+        'summary': '',
+        'market_analysis': '',
+        'risk_assessment': '',
+        'trading_opportunities': [],
+        'confidence_level': 5,
+        'key_levels': []
+    }
+
+    if not llm_analysis:
+        return insights
+
+    # Extract confidence level
+    import re
+    confidence_match = re.search(r'confidence[:\s]*(\d+)/?10?', llm_analysis.lower())
+    if confidence_match:
+        insights['confidence_level'] = int(confidence_match.group(1))
+
+    # Extract summary (first few sentences)
+    sentences = llm_analysis.split('.')
+    if sentences:
+        insights['summary'] = '. '.join(sentences[:2]).strip()
+
+    # Extract key price levels
+    price_pattern = r'[\$]?(\d+\.?\d*)'
+    price_matches = re.findall(price_pattern, llm_analysis)
+    if price_matches:
+        insights['key_levels'] = [float(p) for p in price_matches[:5]]  # Top 5 levels
+
+    # Store full analysis
+    insights['market_analysis'] = llm_analysis
+
+    return insights
+
+def _combine_signals(base_recommendation: Dict[str, Any], llm_insights: Dict[str, Any]) -> List[str]:
+    """Combine RAG and LLM signals"""
+    signals = []
+
+    # RAG signals
+    rag_signals = base_recommendation.get('signals', [])
+    if rag_signals:
+        signals.extend([f"RAG: {signal}" for signal in rag_signals])
+
+    # LLM signals
+    if llm_insights.get('confidence_level', 0) >= 7:
+        signals.append("LLM: High confidence analysis")
+
+    if llm_insights.get('key_levels'):
+        signals.append(f"LLM: Key support/resistance levels identified")
+
+    if llm_insights.get('trading_opportunities'):
+        signals.append("LLM: Trading opportunities detected")
+
+    return signals
+
+def _calculate_enhanced_confidence(base_recommendation: Dict[str, Any], llm_insights: Dict[str, Any]) -> float:
+    """Calculate enhanced confidence score combining RAG and LLM"""
+    rag_confidence = base_recommendation.get('confidence', 50)
+    llm_confidence = llm_insights.get('confidence_level', 5) * 10  # Convert 1-10 to 10-100
+
+    # Weighted average (giving slightly more weight to LLM for qualitative analysis)
+    enhanced_confidence = (rag_confidence * 0.4) + (llm_confidence * 0.6)
+
+    return min(100, max(0, enhanced_confidence))
+
+def convert_mt5_to_rag_format(content: bytes, symbol: str, timeframe: str) -> bytes:
+    """
+    Convert MT5 CSV format to RAG-compatible format
+    MT5 Format: timestamp,open,high,low,close,tick_volume,spread,real_volume
+    RAG Format: TimeFrame,Symbol,Candle,DateTime,Open,High,Low,Close,Volume,HL,Body
+    """
+    try:
+        import pandas as pd
+        from datetime import datetime
+        import io
+
+        # Read MT5 format
+        df = pd.read_csv(io.BytesIO(content))
+
+        # Convert to RAG format
+        rag_data = []
+
+        # Calculate candle numbers (descending from most recent)
+        total_candles = len(df)
+
+        for idx, row in df.iterrows():
+            # Calculate candle number (descending)
+            candle_num = total_candles - idx
+
+            # Convert timestamp format
+            dt = pd.to_datetime(row['timestamp'])
+            datetime_str = dt.strftime('%Y.%m.%d %H:%M')
+
+            # Calculate additional columns
+            high_low = row['high'] - row['low']
+            body = abs(row['close'] - row['open'])
+
+            # Create RAG format row
+            rag_row = {
+                'TimeFrame': f'PERIOD_{timeframe.upper()}',
+                'Symbol': symbol.upper(),
+                'Candle': candle_num,
+                'DateTime': datetime_str,
+                'Open': row['open'],
+                'High': row['high'],
+                'Low': row['low'],
+                'Close': row['close'],
+                'Volume': row['tick_volume'],
+                'HL': high_low,
+                'Body': body
+            }
+            rag_data.append(rag_row)
+
+        # Convert to DataFrame and then to CSV
+        rag_df = pd.DataFrame(rag_data)
+
+        # Convert to CSV string
+        csv_content = rag_df.to_csv(index=False)
+
+        logger.info(f"Converted {len(rag_data)} candles from MT5 format to RAG format")
+        logger.info(f"Sample converted row: {rag_data[0] if rag_data else 'No data'}")
+
+        return csv_content.encode('utf-8')
+
+    except Exception as e:
+        logger.error(f"Failed to convert MT5 format to RAG format: {str(e)}")
+        # Return original content if conversion fails
+        return content
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -1064,6 +1638,539 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
             "message": f"Failed to upload file: {str(e)}"
         }
 
+@app.post("/upload", response_model=Dict[str, Any])
+async def upload_mt5_csv(
+    request: Request,
+    file: UploadFile = File(...),
+    symbol: Optional[str] = Form(None),
+    timeframe: Optional[str] = Form(None),
+    candles: Optional[str] = Form(None)
+):
+    """
+    Upload MT5 CSV data file for live trading analysis
+    Receives CSV files from MT5 EA and saves them with proper naming convention
+
+    Args:
+        request: FastAPI request object (no authentication required for EA)
+        file: Uploaded CSV file from MT5 EA
+        symbol: Trading symbol (e.g., XAUUSD, BTCUSD) - optional
+        timeframe: Timeframe (e.g., M1, M5, M15, M30, H1, H4, H8, D1, W1, MN1) - optional
+        candles: Number of candles in the file - optional
+
+    Returns:
+        Dictionary with upload status and file information
+    """
+    logger.info(f"MT5 CSV Upload Request: file={file.filename}, symbol={symbol}, timeframe={timeframe}, candles={candles}")
+    logger.info(f"Request headers: {dict(request.headers)}")
+
+    try:
+        # Check if file was actually uploaded
+        if not file or not file.filename:
+            logger.error("No file provided in upload request")
+            return {
+                "success": False,
+                "message": "No file provided in upload request",
+                "error": "no_file_provided"
+            }
+
+        logger.info(f"Processing file: {file.filename}, size: {file.size}, content_type: {file.content_type}")
+
+        # Validate inputs (more flexible - allow missing form fields)
+        if not file.filename.endswith('.csv'):
+            return {
+                "success": False,
+                "message": "Only CSV files are allowed",
+                "error": "invalid_file_type",
+                "received_filename": file.filename
+            }
+
+        # Extract metadata from filename if form fields are missing
+        if not symbol or not timeframe or not candles:
+            logger.info("Form fields missing, attempting to extract from filename")
+            filename_pattern = r'^([A-Z_]+)_PERIOD_([A-Z0-9]+)_(\d+)\.csv$'
+            match = re.match(filename_pattern, file.filename.upper())
+
+            if match:
+                symbol = symbol or match.group(1)
+                timeframe = timeframe or match.group(2)
+                candles = candles or match.group(3)
+                logger.info(f"Extracted from filename: symbol={symbol}, timeframe={timeframe}, candles={candles}")
+            else:
+                # Try to extract from common patterns
+                parts = file.filename.replace('.csv', '').upper().split('_')
+                logger.info(f"Filename parts: {parts}")
+
+                if len(parts) >= 3:
+                    symbol = symbol or parts[0]
+                    timeframe = timeframe or parts[2] if parts[2] in ['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M10', 'M12', 'M15', 'M20', 'M30', 'H1', 'H2', 'H3', 'H4', 'H6', 'H8', 'H12', 'D1', 'W1', 'MN1'] else 'M15'
+                    try:
+                        candles = candles or next((p for p in parts if p.isdigit()), '200')
+                    except StopIteration:
+                        candles = '200'
+                    logger.info(f"Extracted from parts: symbol={symbol}, timeframe={timeframe}, candles={candles}")
+                else:
+                    # Default values if we can't extract
+                    symbol = symbol or file.filename.split('_')[0].replace('.CSV', '')
+                    timeframe = timeframe or 'M15'
+                    candles = candles or '200'
+                    logger.info(f"Using defaults: symbol={symbol}, timeframe={timeframe}, candles={candles}")
+
+        logger.info(f"Final parameters: symbol={symbol}, timeframe={timeframe}, candles={candles}")
+
+        # Validate symbol format (letters and underscores only)
+        if not re.match(r'^[A-Z_]+$', symbol.upper()):
+            return {
+                "success": False,
+                "message": f"Invalid symbol format: {symbol}. Use format like XAUUSD, BTCUSD",
+                "error": "invalid_symbol",
+                "received_symbol": symbol
+            }
+
+        # Validate timeframe format (comprehensive MT5 timeframe support)
+        valid_timeframes = [
+            # Minutes
+            'M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M10', 'M12', 'M15', 'M20', 'M30',
+            # Hours
+            'H1', 'H2', 'H3', 'H4', 'H6', 'H8', 'H12',
+            # Days
+            'D1',
+            # Weeks
+            'W1',
+            # Months
+            'MN1'
+        ]
+        timeframe_upper = timeframe.upper()
+        if timeframe_upper not in valid_timeframes:
+            return {
+                "success": False,
+                "message": f"Invalid timeframe: {timeframe}. Valid: {', '.join(valid_timeframes)}",
+                "error": "invalid_timeframe",
+                "received_timeframe": timeframe
+            }
+
+        # Validate candles count
+        try:
+            candles_int = int(candles)
+
+            # If candles count is 0 or invalid, set a reasonable default based on timeframe
+            if candles_int < 1:
+                timeframe_upper = timeframe.upper()
+                if timeframe_upper in ['M1', 'M5']:
+                    candles_int = 1000  # 1000 candles for minute timeframes
+                elif timeframe_upper in ['M15']:
+                    candles_int = 500   # 500 candles for M15
+                elif timeframe_upper in ['M30', 'H1']:
+                    candles_int = 200   # 200 candles for M30/H1
+                elif timeframe_upper in ['H4']:
+                    candles_int = 100   # 100 candles for H4
+                else:
+                    candles_int = 200   # Default 200 candles
+
+                logger.warning(f"Invalid candles count ({candles}), using default: {candles_int} for {timeframe_upper}")
+
+            if candles_int > 10000:
+                return {
+                    "success": False,
+                    "message": f"Invalid candles count: {candles}. Must be between 1 and 10000",
+                    "error": "invalid_candles",
+                    "received_candles": candles
+                }
+        except ValueError:
+            # If parsing fails, set default based on timeframe
+            timeframe_upper = timeframe.upper()
+            if timeframe_upper in ['M1', 'M5']:
+                candles_int = 1000
+            elif timeframe_upper in ['M15']:
+                candles_int = 500
+            elif timeframe_upper in ['M30', 'H1']:
+                candles_int = 200
+            elif timeframe_upper in ['H4']:
+                candles_int = 100
+            else:
+                candles_int = 200
+
+            logger.warning(f"Failed to parse candles count ({candles}), using default: {candles_int} for {timeframe_upper}")
+
+        # Ensure data directory exists
+        data_dir = "data"
+        os.makedirs(data_dir, exist_ok=True)
+
+        # Use original filename to preserve naming convention
+        filename = file.filename
+        file_path = os.path.join(data_dir, filename)
+
+        logger.info(f"Using original filename: {filename}")
+
+        logger.info(f"Reading file content...")
+
+        # Read and validate CSV content
+        content = await file.read()
+        logger.info(f"File content read: {len(content)} bytes")
+
+        if not content:
+            logger.error("Empty file content")
+            return {
+                "success": False,
+                "message": "Empty file content",
+                "error": "empty_file"
+            }
+
+        # Log first few bytes of content for debugging
+        logger.info(f"File content preview (first 100 bytes): {content[:100]}")
+
+        try:
+            # Try to decode content
+            content_str = None
+            encoding_used = "utf-8"
+
+            try:
+                content_str = content.decode('utf-8')
+                logger.info("Successfully decoded as UTF-8")
+            except UnicodeDecodeError:
+                try:
+                    content_str = content.decode('utf-16-le')
+                    encoding_used = "utf-16-le"
+                    logger.info("Successfully decoded as UTF-16 LE")
+                except UnicodeDecodeError:
+                    try:
+                        content_str = content.decode('utf-16-be')
+                        encoding_used = "utf-16-be"
+                        logger.info("Successfully decoded as UTF-16 BE")
+                    except UnicodeDecodeError:
+                        # Try latin-1 as fallback
+                        content_str = content.decode('latin-1', errors='replace')
+                        encoding_used = "latin-1"
+                        logger.warning("Decoded as latin-1 with replacement")
+
+            if not content_str.strip():
+                logger.error("Content is empty after decoding")
+                return {
+                    "success": False,
+                    "message": "File content is empty or unreadable",
+                    "error": "empty_content"
+                }
+
+            logger.info(f"Content sample (first 200 chars): {content_str[:200]}")
+
+            # Validate CSV structure using pandas
+            from io import StringIO
+            df_test = pd.read_csv(StringIO(content_str))
+            logger.info(f"Successfully parsed CSV: {len(df_test)} rows, {len(df_test.columns)} columns")
+            logger.info(f"CSV columns: {list(df_test.columns)}")
+
+            # Check if this is already RAG format or MT5 format
+            rag_columns = ['TimeFrame', 'Symbol', 'Candle', 'DateTime', 'Open', 'High', 'low', 'Close', 'Volume', 'HL', 'Body']
+            mt5_columns = ['timestamp', 'open', 'high', 'low', 'close', 'tick_volume', 'spread', 'real_volume']
+
+            is_rag_format = all(col in df_test.columns for col in ['TimeFrame', 'Symbol', 'DateTime'])
+            is_mt5_format = all(col in df_test.columns for col in ['timestamp', 'open', 'high', 'low', 'close'])
+
+            if not is_rag_format and not is_mt5_format:
+                logger.error(f"Unrecognized CSV format. Found columns: {list(df_test.columns)}")
+                return {
+                    "success": False,
+                    "message": f"Unrecognized CSV format. Expected RAG or MT5 format.",
+                    "found_columns": list(df_test.columns),
+                    "error": "unrecognized_format"
+                }
+
+            # If it's RAG format, skip conversion and use content as-is
+            if is_rag_format:
+                logger.info("Detected RAG format - using content directly without conversion")
+                rag_content = content_str.encode('utf-8')
+
+                # Extract candle count from actual data
+                actual_rows = len(df_test)
+                candles_int = actual_rows  # Update to match actual rows
+
+                # Validate row count
+                if abs(actual_rows - candles_int) > 10:  # Allow small discrepancy
+                    logger.warning(f"Row count mismatch: expected {candles_int}, found {actual_rows}")
+
+                logger.info(f"RAG format validated: {actual_rows} rows")
+            else:
+                # Original MT5 format validation
+                required_columns = ['timestamp', 'open', 'high', 'low', 'close', 'tick_volume', 'spread', 'real_volume']
+                missing_columns = [col for col in required_columns if col not in df_test.columns]
+
+                if missing_columns:
+                    logger.error(f"Missing required columns: {missing_columns}")
+                    return {
+                        "success": False,
+                        "message": f"CSV missing required columns: {', '.join(missing_columns)}",
+                        "required_columns": required_columns,
+                        "found_columns": list(df_test.columns),
+                        "error": "invalid_csv_structure"
+                    }
+
+            # Continue validation for MT5 format only
+            if not is_rag_format:
+                # Validate row count matches expected candles
+                actual_rows = len(df_test)
+                if abs(actual_rows - candles_int) > 10:  # Allow small discrepancy
+                    logger.warning(f"Row count mismatch: expected {candles_int}, found {actual_rows}")
+                    return {
+                        "success": False,
+                        "message": f"Row count mismatch. Expected: {candles_int}, Found: {actual_rows}",
+                        "error": "row_count_mismatch"
+                    }
+
+                # Validate data format (check first few rows)
+                try:
+                    # Test timestamp format
+                    pd.to_datetime(df_test['timestamp'].head())
+
+                    # Test numeric columns
+                    numeric_cols = ['open', 'high', 'low', 'close']
+                    for col in numeric_cols:
+                        pd.to_numeric(df_test[col].head())
+
+                    # Test integer columns
+                    int_cols = ['tick_volume', 'spread', 'real_volume']
+                    for col in int_cols:
+                        pd.to_numeric(df_test[col].head())
+
+                    logger.info("MT5 data format validation passed")
+                except Exception as e:
+                    logger.error(f"MT5 CSV data format validation failed: {e}")
+                    return {
+                        "success": False,
+                        "message": f"MT5 CSV data format validation failed: {str(e)}",
+                        "error": "invalid_data_format"
+                    }
+            else:
+                # For RAG format, just validate basic structure
+                actual_rows = len(df_test)
+                logger.info(f"RAG format detected with {actual_rows} rows")
+
+        except Exception as e:
+            logger.error(f"CSV parsing failed: {e}")
+            return {
+                "success": False,
+                "message": f"CSV parsing failed: {str(e)}",
+                "error": "csv_parse_error"
+            }
+
+        # Convert MT5 format to RAG format only if it's not already RAG format
+        if not is_rag_format:
+            rag_content = convert_mt5_to_rag_format(content, symbol.upper(), timeframe_upper)
+            logger.info("Converted MT5 format to RAG format")
+        else:
+            logger.info("Using existing RAG format content without conversion")
+
+        # Save the file in RAG format
+        logger.info(f"Saving file to: {file_path}")
+        async with aiofiles.open(file_path, 'wb') as f:
+            await f.write(rag_content)
+
+        # Also save to live data directory for intraday timeframes (for live trading)
+        live_updated = False
+        live_path = None
+        intraday_timeframes = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M10', 'M12', 'M15', 'M20', 'M30', 'H1', 'H2', 'H3', 'H4', 'H6', 'H8', 'H12']
+
+        if timeframe_upper in intraday_timeframes:
+            live_dir = os.path.join(data_dir, "live")
+            os.makedirs(live_dir, exist_ok=True)
+            live_filename = f"{symbol.upper()}_{timeframe_upper}_LIVE.csv"
+            live_path = os.path.join(live_dir, live_filename)
+
+            logger.info(f"Saving live file to: {live_path}")
+            async with aiofiles.open(live_path, 'wb') as f:
+                await f.write(rag_content)
+
+            live_updated = True
+            logger.info(f"Live data updated: {live_filename} (RAG format)")
+
+        # Return success response
+        result = {
+            "success": True,
+            "message": f"MT5 CSV data uploaded successfully",
+            "filename": filename,
+            "filepath": file_path,
+            "symbol": symbol.upper(),
+            "timeframe": timeframe_upper,
+            "candles": candles_int,
+            "actual_rows": actual_rows,
+            "file_size": len(content),
+            "encoding": encoding_used,
+            "live_updated": live_updated,
+            "live_path": live_path if live_updated else None,
+            "timestamp": datetime.now().isoformat()
+        }
+
+        logger.info(f"✅ MT5 CSV Upload Successful: {symbol} {timeframe_upper} {candles_int} candles -> {filename}")
+        return result
+
+    except Exception as e:
+        logger.error(f"❌ MT5 CSV Upload Failed: {str(e)}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        return {
+            "success": False,
+            "message": f"Upload failed: {str(e)}",
+            "error": "upload_failed"
+        }
+
+@app.post("/upload/simple", response_model=Dict[str, Any])
+async def upload_mt5_csv_simple(request: Request):
+    """
+    Alternative simple upload endpoint that doesn't use FastAPI's multipart parsing
+    This can handle problematic multipart requests from MT5 EA
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        Dictionary with upload status
+    """
+    logger.info("Using simple upload endpoint (alternative method)")
+    logger.info(f"Request method: {request.method}")
+    logger.info(f"Request headers: {dict(request.headers)}")
+    logger.info(f"Content-Type: {request.headers.get('content-type', 'Unknown')}")
+    logger.info(f"Content-Length: {request.headers.get('content-length', 'Unknown')}")
+
+    try:
+        # Read raw request body
+        body = await request.body()
+        logger.info(f"Received raw body: {len(body)} bytes")
+
+        if not body:
+            return {
+                "success": False,
+                "message": "Empty request body",
+                "error": "empty_body"
+            }
+
+        # For now, let's try to save the body as a file with a default name
+        # This is a very basic approach that should work with most multipart formats
+        import hashlib
+        file_hash = hashlib.md5(body).hexdigest()[:8]
+
+        data_dir = "data"
+        os.makedirs(data_dir, exist_ok=True)
+
+        # Use a simple filename approach
+        filename = f"MT5_UPLOAD_{file_hash}.csv"
+        file_path = os.path.join(data_dir, filename)
+
+        logger.info(f"Saving file to: {file_path}")
+
+        # Save the file
+        async with aiofiles.open(file_path, 'wb') as f:
+            await f.write(body)
+
+        # Also save to live directory for intraday data (default to M15 for unknown)
+        live_dir = os.path.join(data_dir, "live")
+        os.makedirs(live_dir, exist_ok=True)
+        live_filename = "UNKNOWN_M15_LIVE.csv"  # Default to M15 for simple uploads
+        live_path = os.path.join(live_dir, live_filename)
+
+        async with aiofiles.open(live_path, 'wb') as f:
+            await f.write(body)
+
+        return {
+            "success": True,
+            "message": "File uploaded successfully via simple endpoint",
+            "filename": filename,
+            "filepath": file_path,
+            "method": "simple",
+            "file_size": len(body),
+            "live_updated": True,
+            "timestamp": datetime.now().isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Simple upload failed: {str(e)}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        return {
+            "success": False,
+            "message": f"Simple upload failed: {str(e)}",
+            "error": "simple_upload_failed"
+        }
+
+@app.get("/upload/status", response_model=Dict[str, Any])
+async def upload_status():
+    """
+    Get status of uploaded MT5 data files
+
+    Returns:
+        Dictionary with available data files and their information
+    """
+    try:
+        data_dir = "data"
+        live_dir = os.path.join(data_dir, "live")
+
+        # Get all MT5 data files
+        mt5_files = []
+
+        if os.path.exists(data_dir):
+            for filename in os.listdir(data_dir):
+                if filename.endswith('.csv') and '_PERIOD_' in filename:
+                    file_path = os.path.join(data_dir, filename)
+                    stat = os.stat(file_path)
+
+                    # Parse filename to extract info
+                    try:
+                        parts = filename.replace('.csv', '').split('_')
+                        if len(parts) >= 4 and parts[1] == 'PERIOD':
+                            symbol = parts[0]
+                            timeframe = parts[2]
+                            candles = parts[3]
+
+                            mt5_files.append({
+                                "filename": filename,
+                                "symbol": symbol,
+                                "timeframe": timeframe,
+                                "candles": candles,
+                                "size": stat.st_size,
+                                "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                                "path": file_path
+                            })
+                    except:
+                        continue
+
+        # Get live data files
+        live_files = []
+        if os.path.exists(live_dir):
+            for filename in os.listdir(live_dir):
+                if filename.endswith('_LIVE.csv'):
+                    file_path = os.path.join(live_dir, filename)
+                    stat = os.stat(file_path)
+
+                    # Extract symbol from various live file formats
+                    symbol = filename
+                    for tf in ['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M10', 'M12', 'M15', 'M20', 'M30', 'H1', 'H2', 'H3', 'H4', 'H6', 'H8', 'H12']:
+                        symbol = symbol.replace(f'_{tf}_LIVE.csv', '')
+                    symbol = symbol.replace('UNKNOWN_', '')  # Handle unknown symbol case
+                    live_files.append({
+                        "filename": filename,
+                        "symbol": symbol,
+                        "size": stat.st_size,
+                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        "path": file_path
+                    })
+
+        return {
+            "success": True,
+            "mt5_files": mt5_files,
+            "live_files": live_files,
+            "total_mt5_files": len(mt5_files),
+            "total_live_files": len(live_files),
+            "data_directory": data_dir,
+            "live_directory": live_dir,
+            "timestamp": datetime.now().isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get upload status: {e}")
+        return {
+            "success": False,
+            "message": f"Failed to get status: {str(e)}",
+            "mt5_files": [],
+            "live_files": []
+        }
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_page_endpoint(request: Request):
     """
@@ -1781,6 +2888,65 @@ async def get_knowledge_stats(request: Request):
     except Exception as e:
         logger.error(f"Failed to get knowledge stats: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve statistics: {str(e)}")
+
+@app.post("/query", response_model=Dict[str, Any])
+async def query_endpoint(request: Request, query_request: Dict[str, Any]):
+    """
+    Enhanced query endpoint that supports trading analysis with LLM integration
+    """
+    try:
+        logger.info(f"Received query request: {str(query_request)[:100]}...")
+
+        # Get the raw query from the request body
+        query_text = query_request.get("query", "")
+
+        # Enhance query with RAG context
+        context_data = rag_enhancer.enhance_query_with_rag(query_text, max_context=query_request.get("max_context", 5))
+
+        # Check if this is a trading-related query
+        is_trading_query = _is_trading_query(query_text)
+
+        result = {
+            "query": query_text,
+            "context": context_data,
+            "is_trading_query": is_trading_query
+        }
+
+        # If trading query, get LLM analysis
+        if is_trading_query and _is_ollama_available():
+            try:
+                llm_analysis = await get_llm_trading_analysis(query_text, context_data)
+                result["llm_analysis"] = llm_analysis
+                result["enhanced_recommendation"] = generate_enhanced_recommendation_from_analysis(context_data, llm_analysis)
+            except Exception as e:
+                logger.error(f"Failed to get LLM analysis: {e}")
+                result["llm_error"] = str(e)
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Query endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=f"Query processing failed: {str(e)}")
+
+def _is_trading_query(query: str) -> bool:
+    """Check if query is related to trading/finance"""
+    trading_keywords = [
+        'trade', 'trading', 'buy', 'sell', 'market', 'stock', 'forex', 'crypto',
+        'xauusd', 'gold', 'silver', 'currency', 'price', 'chart', 'indicator',
+        'rsi', 'macd', 'sma', 'ema', 'vwap', 'support', 'resistance',
+        'entry', 'exit', 'stop loss', 'take profit', 'profit', 'loss'
+    ]
+
+    query_lower = query.lower()
+    return any(keyword in query_lower for keyword in trading_keywords)
+
+def _is_ollama_available() -> bool:
+    """Check if Ollama is available"""
+    try:
+        ollama_client.check_model()
+        return True
+    except:
+        return False
 
 @app.delete("/api/knowledge/clear", response_model=ApiResponse)
 async def clear_all_knowledge(request: Request):
