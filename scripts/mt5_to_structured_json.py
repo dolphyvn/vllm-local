@@ -233,9 +233,30 @@ class MT5ToStructuredJSON:
             self.df['volume_sma'] = pd.Series(volume).rolling(window=20, min_periods=1).mean()
             self.df['volume_ratio'] = pd.Series(volume) / self.df['volume_sma'].replace(0, 1)
 
-            # VWAP (Volume Weighted Average Price)
+            # VWAP (Volume Weighted Average Price) - Cumulative
             typical_price = (pd.Series(high) + pd.Series(low) + pd.Series(close)) / 3
             self.df['vwap'] = (typical_price * pd.Series(volume)).cumsum() / pd.Series(volume).cumsum()
+
+            # === MARKET PROFILE INDICATORS ===
+
+            # Calculate session for each candle
+            self.df['session'] = self.df['timestamp'].apply(self._get_session)
+
+            # Session-based VWAP (resets per session)
+            self.df['session_vwap'] = self._calculate_session_vwap(typical_price, pd.Series(volume))
+
+            # Market Profile: POC, VAH, VAL per session
+            market_profile = self._calculate_market_profile()
+            self.df['poc'] = market_profile['poc']
+            self.df['vah'] = market_profile['vah']
+            self.df['val'] = market_profile['val']
+            self.df['value_area_pct'] = market_profile['va_pct']  # % of price within value area
+
+            # Initial Balance (first hour range of session)
+            ib_data = self._calculate_initial_balance()
+            self.df['ib_high'] = ib_data['ib_high']
+            self.df['ib_low'] = ib_data['ib_low']
+            self.df['ib_range'] = ib_data['ib_range']
 
             # === PRICE ACTION ===
 
@@ -312,6 +333,199 @@ class MT5ToStructuredJSON:
         else:
             return "pacific"
 
+    def _calculate_session_vwap(self, typical_price: pd.Series, volume: pd.Series) -> pd.Series:
+        """
+        Calculate VWAP that resets at each trading session start
+
+        Args:
+            typical_price: (High + Low + Close) / 3
+            volume: Volume series
+
+        Returns:
+            Session-based VWAP series
+        """
+        session_vwap = pd.Series(index=self.df.index, dtype=float)
+
+        # Group by date and session
+        self.df['date'] = self.df['timestamp'].dt.date
+
+        for (date, session), group in self.df.groupby(['date', 'session']):
+            indices = group.index
+
+            # Calculate cumulative VWAP within session
+            tp_session = typical_price.loc[indices]
+            vol_session = volume.loc[indices]
+
+            cumulative_tp_vol = (tp_session * vol_session).cumsum()
+            cumulative_vol = vol_session.cumsum()
+
+            session_vwap.loc[indices] = cumulative_tp_vol / cumulative_vol.replace(0, 1)
+
+        return session_vwap
+
+    def _calculate_market_profile(self) -> Dict[str, pd.Series]:
+        """
+        Calculate Market Profile indicators: POC, VAH, VAL per session
+
+        Returns:
+            Dictionary with poc, vah, val, and value area percentage series
+        """
+        poc = pd.Series(index=self.df.index, dtype=float)
+        vah = pd.Series(index=self.df.index, dtype=float)
+        val = pd.Series(index=self.df.index, dtype=float)
+        va_pct = pd.Series(index=self.df.index, dtype=float)
+
+        # Process each session separately
+        for (date, session), group in self.df.groupby(['date', 'session']):
+            indices = group.index
+
+            if len(indices) == 0:
+                continue
+
+            # Get price and volume data for this session
+            session_high = group['high'].values
+            session_low = group['low'].values
+            session_close = group['close'].values
+            session_volume = group['volume'].values
+
+            # Create price levels (tick size = 0.01 for most instruments)
+            price_min = session_low.min()
+            price_max = session_high.max()
+            tick_size = 0.01
+
+            # Create volume profile bins
+            num_bins = min(int((price_max - price_min) / tick_size) + 1, 500)  # Cap at 500 bins
+            if num_bins < 5:
+                num_bins = 5
+
+            price_levels = np.linspace(price_min, price_max, num_bins)
+            volume_at_price = np.zeros(len(price_levels))
+
+            # Distribute volume across price levels
+            for i in range(len(indices)):
+                low_price = session_low[i]
+                high_price = session_high[i]
+                vol = session_volume[i]
+
+                # Find which bins this candle covers
+                bins_covered = np.where((price_levels >= low_price) & (price_levels <= high_price))[0]
+
+                if len(bins_covered) > 0:
+                    # Distribute volume evenly across covered bins
+                    volume_at_price[bins_covered] += vol / len(bins_covered)
+
+            # Find POC (Point of Control) - price with highest volume
+            if volume_at_price.sum() > 0:
+                poc_idx = np.argmax(volume_at_price)
+                session_poc = price_levels[poc_idx]
+
+                # Calculate Value Area (70% of total volume)
+                total_volume = volume_at_price.sum()
+                target_volume = total_volume * 0.70
+
+                # Start from POC and expand outward to capture 70% volume
+                va_indices = [poc_idx]
+                accumulated_volume = volume_at_price[poc_idx]
+
+                left_idx = poc_idx - 1
+                right_idx = poc_idx + 1
+
+                while accumulated_volume < target_volume:
+                    left_vol = volume_at_price[left_idx] if left_idx >= 0 else 0
+                    right_vol = volume_at_price[right_idx] if right_idx < len(volume_at_price) else 0
+
+                    if left_vol == 0 and right_vol == 0:
+                        break
+
+                    # Expand to side with more volume
+                    if left_vol > right_vol and left_idx >= 0:
+                        va_indices.append(left_idx)
+                        accumulated_volume += left_vol
+                        left_idx -= 1
+                    elif right_idx < len(volume_at_price):
+                        va_indices.append(right_idx)
+                        accumulated_volume += right_vol
+                        right_idx += 1
+                    else:
+                        break
+
+                # Value Area High and Low
+                va_indices = sorted(va_indices)
+                session_vah = price_levels[va_indices[-1]]
+                session_val = price_levels[va_indices[0]]
+                session_va_pct = accumulated_volume / total_volume * 100
+            else:
+                # Fallback if no volume data
+                session_poc = session_close.mean()
+                session_vah = session_high.max()
+                session_val = session_low.min()
+                session_va_pct = 0
+
+            # Assign to all candles in this session
+            poc.loc[indices] = session_poc
+            vah.loc[indices] = session_vah
+            val.loc[indices] = session_val
+            va_pct.loc[indices] = session_va_pct
+
+        return {
+            'poc': poc,
+            'vah': vah,
+            'val': val,
+            'va_pct': va_pct
+        }
+
+    def _calculate_initial_balance(self) -> Dict[str, pd.Series]:
+        """
+        Calculate Initial Balance (first hour range of each session)
+
+        Returns:
+            Dictionary with ib_high, ib_low, and ib_range series
+        """
+        ib_high = pd.Series(index=self.df.index, dtype=float)
+        ib_low = pd.Series(index=self.df.index, dtype=float)
+        ib_range = pd.Series(index=self.df.index, dtype=float)
+
+        # Process each session
+        for (date, session), group in self.df.groupby(['date', 'session']):
+            indices = group.index
+
+            if len(indices) == 0:
+                continue
+
+            # Sort by timestamp to get first hour
+            session_data = group.sort_values('timestamp')
+
+            # Determine first hour based on timeframe
+            # For M15: 4 candles = 1 hour
+            # For M5: 12 candles = 1 hour
+            # For M1: 60 candles = 1 hour
+            # For H1: 1 candle = 1 hour
+
+            timeframe_map = {
+                'M1': 60, 'M5': 12, 'M15': 4, 'M30': 2,
+                'H1': 1, 'H4': 1, 'D1': 1
+            }
+            first_hour_candles = timeframe_map.get(self.timeframe, 4)  # Default to M15
+
+            # Get first hour data
+            first_hour = session_data.iloc[:min(first_hour_candles, len(session_data))]
+
+            # Calculate IB high/low
+            session_ib_high = first_hour['high'].max()
+            session_ib_low = first_hour['low'].min()
+            session_ib_range = session_ib_high - session_ib_low
+
+            # Assign to all candles in session
+            ib_high.loc[indices] = session_ib_high
+            ib_low.loc[indices] = session_ib_low
+            ib_range.loc[indices] = session_ib_range
+
+        return {
+            'ib_high': ib_high,
+            'ib_low': ib_low,
+            'ib_range': ib_range
+        }
+
     def to_structured_json(self) -> Dict[str, Any]:
         """
         Convert DataFrame to structured JSON format
@@ -337,10 +551,11 @@ class MT5ToStructuredJSON:
             "indicators": [
                 "rsi", "macd", "stoch", "ema_9", "ema_20", "ema_50", "ema_200",
                 "sma_20", "sma_50", "bb_bands", "atr", "vwap", "volume_ratio",
-                "price_change", "candle_structure"
+                "price_change", "candle_structure",
+                "market_profile_poc", "market_profile_vah_val", "session_vwap", "initial_balance"
             ],
             "processed_at": datetime.now().isoformat(),
-            "format_version": "2.0_structured"
+            "format_version": "2.1_market_profile"
         }
 
         # Process each candle
@@ -406,6 +621,16 @@ class MT5ToStructuredJSON:
                             "volume_sma": float(row['volume_sma']),
                             "volume_ratio": float(row['volume_ratio']),
                             "vwap": float(row['vwap'])
+                        },
+                        "market_profile": {
+                            "session_vwap": float(row['session_vwap']),
+                            "poc": float(row['poc']),
+                            "vah": float(row['vah']),
+                            "val": float(row['val']),
+                            "value_area_pct": float(row['value_area_pct']),
+                            "ib_high": float(row['ib_high']),
+                            "ib_low": float(row['ib_low']),
+                            "ib_range": float(row['ib_range'])
                         },
                         "price_action": {
                             "price_change_pct": float(row['price_change_pct']),

@@ -111,6 +111,16 @@ MT5 CSV → Structured JSON → Pattern Detection → ChromaDB (structured) → 
 - [ ] Performance benchmarking (PENDING)
 - [ ] End-to-end documentation (PENDING)
 
+### Phase 6: Market Profile Enhancement ✅ COMPLETE (2025-10-31)
+- [x] Add session-based VWAP (resets per trading session)
+- [x] Implement POC (Point of Control) calculation
+- [x] Calculate VAH/VAL (Value Area High/Low) - 70% volume area
+- [x] Add Volume Profile by price levels
+- [x] Implement Initial Balance (first hour range per session)
+- [x] Test with sample data (41 indicators vs 31 previously)
+- [x] Verify Market Profile data in JSON output
+- [x] Update format version to 2.1_market_profile
+
 ## Key Design Decisions
 
 ### 1. **Structured vs Narrative**
@@ -192,17 +202,44 @@ python scripts/pattern_retriever.py --query "bullish reversal" --format llm
   - Multiple filters: ✅ Works (tested with symbol+timeframe)
   - LLM format: ✅ Produces structured output with statistics
   - Current market: ✅ Works (no results due to small dataset)
+- **Market Profile (Phase 6):**
+  - Session VWAP: ✅ Resets correctly per session (Asia, London, NY, etc.)
+  - POC/VAH/VAL: ✅ Calculated per session with 70% value area
+  - Initial Balance: ✅ First hour range tracked correctly
+  - Indicator count: ✅ Increased from 31 to 41 indicators
 
 ### Performance Metrics
-- CSV conversion: 200 candles in ~2 seconds
+- CSV conversion: 200 candles in ~2 seconds (41 indicators)
 - Pattern detection: 43 patterns in ~3 seconds
 - ChromaDB feeding: 43 patterns in <1 second
 - Query retrieval: <100ms response time
+- Market Profile overhead: ~0.5 seconds per 200 candles
+
+### Market Profile Feature Details
+**Session-based VWAP:**
+- Resets at session boundaries (Asia 00:00, London 08:00, NY 13:00, etc.)
+- More accurate than cumulative VWAP for intraday analysis
+
+**POC (Point of Control):**
+- Price level with highest volume concentration
+- Calculated per session using 500 price bins maximum
+- Example: POC 3937.22 for Pacific session
+
+**VAH/VAL (Value Area):**
+- 70% of session volume captured
+- Expands outward from POC until 70% threshold reached
+- Example: VAH 3957.46, VAL 3928.14
+
+**Initial Balance:**
+- First hour range of each session
+- Timeframe-aware (M15: 4 candles, H1: 1 candle, etc.)
+- Example: IB Range 51.80 points
 
 ### Known Limitations
 - Current market search may return no results with small datasets (need >500 patterns for good coverage)
 - Requires minimum 120 candles for pattern detection (lookback period)
 - Live mode uses shorter lookforward (10 bars vs 20 bars)
+- Market Profile requires sufficient volume data (fallback to price range if no volume)
 
 ## Notes & Observations
 

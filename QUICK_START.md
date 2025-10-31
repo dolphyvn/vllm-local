@@ -14,6 +14,9 @@ MT5 CSV → Structured JSON → Pattern Detection → ChromaDB → LLM Query
 ### Core Components
 
 1. **`mt5_to_structured_json.py`** - Converts raw MT5 CSV to clean structured JSON
+   - 41+ technical indicators including Market Profile (POC, VAH, VAL)
+   - Session-based VWAP reset (Asia, London, Newyork, US Late, Pacific)
+   - Initial Balance tracking per session
 2. **`pattern_detector.py`** - Detects 10+ trading patterns with outcome analysis
 3. **`rag_structured_feeder.py`** - Feeds patterns to ChromaDB with optimized metadata
 4. **`pattern_retriever.py`** - Query helper for LLM integration
