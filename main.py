@@ -1638,9 +1638,58 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
             "message": f"Failed to upload file: {str(e)}"
         }
 
+async def process_full_history_to_rag(file_path: str, symbol: str, timeframe: str):
+    """
+    Background task to process full history (*_0.csv) files through RAG pipeline
+
+    Pipeline: CSV → Structured JSON → Pattern Detection → ChromaDB
+
+    Args:
+        file_path: Path to the uploaded CSV file
+        symbol: Trading symbol (e.g., XAUUSD)
+        timeframe: Timeframe (e.g., M15, H1)
+    """
+    import subprocess
+    import os
+
+    try:
+        logger.info(f"🚀 Starting RAG pipeline for {file_path}")
+        logger.info(f"   Symbol: {symbol}, Timeframe: {timeframe}")
+
+        # Run the process_pipeline.sh script
+        pipeline_script = "./scripts/process_pipeline.sh"
+
+        if not os.path.exists(pipeline_script):
+            logger.error(f"Pipeline script not found: {pipeline_script}")
+            return
+
+        # Execute pipeline in background
+        result = subprocess.run(
+            [pipeline_script, file_path],
+            capture_output=True,
+            text=True,
+            timeout=600  # 10 minutes timeout
+        )
+
+        if result.returncode == 0:
+            logger.info(f"✅ RAG pipeline completed successfully for {file_path}")
+            logger.info(f"Output: {result.stdout[-500:]}")  # Last 500 chars
+        else:
+            logger.error(f"❌ RAG pipeline failed for {file_path}")
+            logger.error(f"Error: {result.stderr}")
+
+    except subprocess.TimeoutExpired:
+        logger.error(f"⏱️  RAG pipeline timeout for {file_path}")
+    except Exception as e:
+        logger.error(f"💥 RAG pipeline error for {file_path}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
 @app.post("/upload", response_model=Dict[str, Any])
 async def upload_mt5_csv(
     request: Request,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     symbol: Optional[str] = Form(None),
     timeframe: Optional[str] = Form(None),
@@ -1981,10 +2030,40 @@ async def upload_mt5_csv(
             live_updated = True
             logger.info(f"Live data updated: {live_filename} (RAG format)")
 
+        # Check if this is a full history file (*_0.csv) and trigger RAG pipeline
+        rag_processing = False
+        if filename.endswith("_0.csv") or filename.endswith("_0.CSV"):
+            logger.info(f"📊 Full history file detected: {filename}")
+            logger.info(f"   Scheduling RAG pipeline processing in background...")
+
+            # Trigger background processing
+            background_tasks.add_task(
+                process_full_history_to_rag,
+                file_path,
+                symbol.upper(),
+                timeframe_upper
+            )
+            rag_processing = True
+            logger.info(f"   ✅ RAG pipeline scheduled for background processing")
+        elif filename.endswith("_200.csv") or filename.endswith("_200.CSV"):
+            logger.info(f"📈 Live data file detected: {filename}")
+            logger.info(f"   Saved for LLM analysis (no RAG processing needed)")
+        else:
+            logger.info(f"📁 Standard file: {filename}")
+            logger.info(f"   Saved to data directory")
+
         # Return success response
+        # Update success message based on file type
+        if rag_processing:
+            message = f"Full history file uploaded. RAG pipeline processing started in background."
+        elif filename.endswith("_200.csv") or filename.endswith("_200.CSV"):
+            message = f"Live data uploaded successfully. Ready for LLM analysis."
+        else:
+            message = f"MT5 CSV data uploaded successfully"
+
         result = {
             "success": True,
-            "message": f"MT5 CSV data uploaded successfully",
+            "message": message,
             "filename": filename,
             "filepath": file_path,
             "symbol": symbol.upper(),
@@ -1995,6 +2074,7 @@ async def upload_mt5_csv(
             "encoding": encoding_used,
             "live_updated": live_updated,
             "live_path": live_path if live_updated else None,
+            "rag_processing": rag_processing,
             "timestamp": datetime.now().isoformat()
         }
 
