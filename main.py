@@ -1075,6 +1075,7 @@ You have access to retrieved context from previous conversations and learned les
 async def chat_endpoint(request: ChatRequest, http_request: Request):
     """
     Main chat endpoint that processes user messages and returns AI responses
+    Now includes automatic web search for current information!
 
     Args:
         request: ChatRequest containing message and parameters
@@ -1088,11 +1089,63 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     logger.info(f"Received chat request: {request.message[:100]}...")
 
     try:
+        # Check if web search is needed for current information
+        needs_web_search = trading_tools.should_use_web_search(request.message)
+
+        web_context = ""
+        if needs_web_search:
+            logger.info("🌐 Web search triggered - fetching real-time information")
+
+            try:
+                # Determine what to search for based on query
+                query_lower = request.message.lower()
+
+                if "news" in query_lower:
+                    # Extract symbol if mentioned
+                    symbols = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "BTCUSD", "ETHUSD"]
+                    symbol = next((s for s in symbols if s.lower() in query_lower), "XAUUSD")
+                    web_context = trading_news_api.get_symbol_news(symbol)
+                    logger.info(f"📰 Fetched news for {symbol}")
+
+                elif "calendar" in query_lower or "event" in query_lower:
+                    web_context = trading_news_api.get_economic_calendar()
+                    logger.info("📅 Fetched economic calendar")
+
+                elif "sentiment" in query_lower:
+                    symbols = ["XAUUSD", "EURUSD", "GBPUSD", "BTCUSD"]
+                    symbol = next((s for s in symbols if s.lower() in query_lower), "XAUUSD")
+                    web_context = trading_news_api.get_market_sentiment(symbol)
+                    logger.info(f"📊 Fetched market sentiment for {symbol}")
+
+                elif "overview" in query_lower or ("market" in query_lower and "today" in query_lower):
+                    web_context = trading_news_api.get_market_overview()
+                    logger.info("🌍 Fetched market overview")
+
+                else:
+                    # General web search
+                    web_context = web_search_tool.search_web(request.message, max_results=3)
+                    logger.info("🔍 Performed general web search")
+
+            except Exception as e:
+                logger.warning(f"Web search failed, continuing with RAG only: {e}")
+                web_context = ""
+
         # Enhanced RAG context retrieval
         context_data = rag_enhancer.enhance_query_with_rag(request.message, max_context=request.memory_context)
 
+        # Build enhanced message with web context if available
+        if web_context:
+            enhanced_message = f"""User question: {request.message}
+
+📡 REAL-TIME INFORMATION FROM THE WEB:
+{web_context}
+
+Please provide a comprehensive answer using both the above real-time information and your knowledge."""
+        else:
+            enhanced_message = request.message
+
         # Build contextual prompt with enhanced memory
-        messages = build_enhanced_contextual_prompt(request.message, context_data)
+        messages = build_enhanced_contextual_prompt(enhanced_message, context_data)
 
         # Get response from Ollama
         ai_response = await ollama_client.chat_completion(messages)
@@ -1152,6 +1205,45 @@ async def chat_stream_endpoint(request: StreamChatRequest, http_request: Request
         start_time = datetime.now().isoformat()
 
         try:
+            # Check if web search is needed for current information
+            needs_web_search = trading_tools.should_use_web_search(request.message)
+
+            web_context = ""
+            if needs_web_search:
+                logger.info("🌐 Web search triggered in streaming mode")
+
+                try:
+                    # Determine what to search for based on query
+                    query_lower = request.message.lower()
+
+                    if "news" in query_lower:
+                        symbols = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "BTCUSD", "ETHUSD"]
+                        symbol = next((s for s in symbols if s.lower() in query_lower), "XAUUSD")
+                        web_context = trading_news_api.get_symbol_news(symbol)
+                        logger.info(f"📰 Fetched news for {symbol}")
+
+                    elif "calendar" in query_lower or "event" in query_lower:
+                        web_context = trading_news_api.get_economic_calendar()
+                        logger.info("📅 Fetched economic calendar")
+
+                    elif "sentiment" in query_lower:
+                        symbols = ["XAUUSD", "EURUSD", "GBPUSD", "BTCUSD"]
+                        symbol = next((s for s in symbols if s.lower() in query_lower), "XAUUSD")
+                        web_context = trading_news_api.get_market_sentiment(symbol)
+                        logger.info(f"📊 Fetched market sentiment for {symbol}")
+
+                    elif "overview" in query_lower or ("market" in query_lower and "today" in query_lower):
+                        web_context = trading_news_api.get_market_overview()
+                        logger.info("🌍 Fetched market overview")
+
+                    else:
+                        web_context = web_search_tool.search_web(request.message, max_results=3)
+                        logger.info("🔍 Performed general web search")
+
+                except Exception as e:
+                    logger.warning(f"Web search failed in streaming mode: {e}")
+                    web_context = ""
+
             # Enhanced RAG context retrieval
             context_data = rag_enhancer.enhance_query_with_rag(request.message, max_context=request.memory_context)
 
@@ -1197,6 +1289,15 @@ async def chat_stream_endpoint(request: StreamChatRequest, http_request: Request
                     enhanced_message = request.message
             else:
                 enhanced_message = request.message
+
+            # Add web context if available
+            if web_context:
+                enhanced_message = f"""{enhanced_message}
+
+📡 REAL-TIME INFORMATION FROM THE WEB:
+{web_context}
+
+Please provide a comprehensive answer using both the above real-time information and your knowledge."""
 
             # Build contextual prompt with enhanced memory and file content
             messages = build_enhanced_contextual_prompt(enhanced_message, context_data)
