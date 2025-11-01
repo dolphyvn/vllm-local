@@ -1191,7 +1191,8 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
 
     try:
         # Check if web search is needed for current information
-        needs_web_search = trading_tools.should_use_web_search(request.message)
+        web_search_enabled = config.get("api_settings", {}).get("web_search_enabled", True)
+        needs_web_search = trading_tools.should_use_web_search(request.message) and web_search_enabled
 
         web_context = ""
         if needs_web_search:
@@ -1343,7 +1344,8 @@ async def chat_stream_endpoint(request: StreamChatRequest, http_request: Request
 
         try:
             # Check if web search is needed for current information
-            needs_web_search = trading_tools.should_use_web_search(request.message)
+            web_search_enabled = config.get("api_settings", {}).get("web_search_enabled", True)
+            needs_web_search = trading_tools.should_use_web_search(request.message) and web_search_enabled
 
             web_context = ""
             if needs_web_search:
@@ -3657,6 +3659,84 @@ async def clear_all_knowledge(request: Request):
 # Web Search and Trading News Endpoints
 # ============================================================================
 
+@app.get("/api/settings/web-search")
+async def get_web_search_setting(request: Request = None):
+    """
+    Get current web search setting
+
+    Args:
+        request: FastAPI request for authentication
+
+    Returns:
+        Current web search enabled status
+    """
+    # Check authentication
+    get_current_user(auth_manager, request)
+
+    try:
+        web_search_enabled = config.get("api_settings", {}).get("web_search_enabled", True)
+        return {
+            "success": True,
+            "web_search_enabled": web_search_enabled
+        }
+    except Exception as e:
+        logger.error(f"Failed to get web search setting: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "web_search_enabled": True  # Default fallback
+        }
+
+@app.post("/api/settings/web-search")
+async def update_web_search_setting(
+    enabled: bool = Body(..., embed=True),
+    request: Request = None
+):
+    """
+    Update web search setting
+
+    Args:
+        enabled: Whether web search should be enabled
+        request: FastAPI request for authentication
+
+    Returns:
+        Update status
+    """
+    # Check authentication
+    get_current_user(auth_manager, request)
+
+    try:
+        # Load current config
+        config_path = "config.json"
+        with open(config_path, "r", encoding="utf-8") as f:
+            current_config = json.load(f)
+
+        # Update web search setting
+        if "api_settings" not in current_config:
+            current_config["api_settings"] = {}
+        current_config["api_settings"]["web_search_enabled"] = enabled
+
+        # Save updated config
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(current_config, f, indent=2, ensure_ascii=False)
+
+        # Update global config
+        config.update(current_config)
+
+        logger.info(f"Web search setting updated to: {enabled}")
+        return {
+            "success": True,
+            "message": f"Web search {'enabled' if enabled else 'disabled'}",
+            "web_search_enabled": enabled
+        }
+    except Exception as e:
+        logger.error(f"Failed to update web search setting: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "web_search_enabled": config.get("api_settings", {}).get("web_search_enabled", True)
+        }
+
 @app.get("/api/web/search")
 async def web_search_endpoint(
     query: str,
@@ -3891,7 +3971,8 @@ async def web_enhanced_chat_endpoint(
 
     try:
         # Check if web search is needed
-        needs_web_search = trading_tools.should_use_web_search(request.message)
+        web_search_enabled = config.get("api_settings", {}).get("web_search_enabled", True)
+        needs_web_search = trading_tools.should_use_web_search(request.message) and web_search_enabled
 
         web_context = ""
         if needs_web_search:

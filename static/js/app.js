@@ -114,6 +114,22 @@ class FinancialAssistantApp {
                     </div>
                     <div class="modal-body">
                         <div class="settings-section">
+                            <h4><i class="fas fa-globe"></i> Internet Access</h4>
+                            <div class="setting-item">
+                                <label for="webSearchToggle" class="setting-label">
+                                    <i class="fas fa-search"></i>
+                                    Web Search
+                                </label>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="webSearchToggle" class="toggle-input" checked>
+                                    <label for="webSearchToggle" class="toggle-label"></label>
+                                </div>
+                            </div>
+                            <p class="setting-description">
+                                Enable web search for real-time information and news
+                            </p>
+                        </div>
+                        <div class="settings-section">
                             <h4><i class="fas fa-sign-out-alt"></i> Session</h4>
                             <button class="logout-btn" onclick="app.logout()">
                                 <i class="fas fa-sign-out-alt"></i>
@@ -213,12 +229,118 @@ class FinancialAssistantApp {
                     transform: translateY(-1px);
                     box-shadow: 0 4px 12px rgba(245, 101, 101, 0.3);
                 }
+                .setting-item {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin: 10px 0;
+                }
+                .setting-label {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    font-weight: 500;
+                    color: #333;
+                }
+                .setting-description {
+                    font-size: 0.85rem;
+                    color: #666;
+                    margin: 5px 0 0 0;
+                    line-height: 1.4;
+                }
+                .toggle-switch {
+                    position: relative;
+                    width: 50px;
+                    height: 24px;
+                }
+                .toggle-input {
+                    opacity: 0;
+                    width: 0;
+                    height: 0;
+                }
+                .toggle-label {
+                    position: absolute;
+                    cursor: pointer;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background-color: #ccc;
+                    transition: .3s;
+                    border-radius: 24px;
+                }
+                .toggle-label:before {
+                    position: absolute;
+                    content: "";
+                    height: 18px;
+                    width: 18px;
+                    left: 3px;
+                    bottom: 3px;
+                    background-color: white;
+                    transition: .3s;
+                    border-radius: 50%;
+                }
+                .toggle-input:checked + .toggle-label {
+                    background-color: #2196F3;
+                }
+                .toggle-input:checked + .toggle-label:before {
+                    transform: translateX(26px);
+                }
             `;
             document.head.appendChild(style);
         }
 
         // Add modal to page
         document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Load current web search setting
+        this.loadWebSearchSetting();
+
+        // Add event listener for web search toggle
+        const webSearchToggle = document.getElementById('webSearchToggle');
+        if (webSearchToggle) {
+            webSearchToggle.addEventListener('change', async (e) => {
+                await this.updateWebSearchSetting(e.target.checked);
+            });
+        }
+    }
+
+    async loadWebSearchSetting() {
+        try {
+            const response = await this.apiCall('/api/settings/web-search', null, 'GET');
+            if (response.success) {
+                const webSearchToggle = document.getElementById('webSearchToggle');
+                if (webSearchToggle) {
+                    webSearchToggle.checked = response.web_search_enabled;
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load web search setting:', error);
+        }
+    }
+
+    async updateWebSearchSetting(enabled) {
+        try {
+            const response = await this.apiCall('/api/settings/web-search', { enabled: enabled });
+            if (response.success) {
+                this.showToast(response.message, 'success');
+            } else {
+                this.showToast(`Failed to update setting: ${response.error}`, 'error');
+                // Revert the toggle if update failed
+                const webSearchToggle = document.getElementById('webSearchToggle');
+                if (webSearchToggle) {
+                    webSearchToggle.checked = !enabled;
+                }
+            }
+        } catch (error) {
+            console.error('Failed to update web search setting:', error);
+            this.showToast('Failed to update web search setting', 'error');
+            // Revert the toggle if update failed
+            const webSearchToggle = document.getElementById('webSearchToggle');
+            if (webSearchToggle) {
+                webSearchToggle.checked = !enabled;
+            }
+        }
     }
 
     setupEventListeners() {
