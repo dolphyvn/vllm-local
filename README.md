@@ -910,6 +910,134 @@ The RAG system automatically enhances queries by:
 3. Building context from historical data
 4. Enhancing LLM prompts with relevant context
 
+### RAG + LLM Architecture
+
+The system uses a **Retrieval-Augmented Generation (RAG) + Large Language Model (LLM)** architecture for knowledge-enhanced responses:
+
+#### Data Flow
+
+```
+User Query → RAG Retrieval (ChromaDB) → Context Building → LLM Processing → Response
+```
+
+**Step-by-step breakdown:**
+
+1. **RAG Retrieval**: User query is converted to embeddings and searched against ChromaDB collections
+2. **Context Building**: Relevant chunks (conversations, lessons, patterns, ebooks) are retrieved
+3. **LLM Processing**: Combined context + user query sent to LLM (Ollama)
+4. **Response Generation**: LLM generates answer using retrieved knowledge
+
+#### Multi-Collection Architecture
+
+The system maintains **3 separate ChromaDB collections**:
+
+| Collection | Purpose | Fed By | Used By |
+|------------|---------|--------|---------|
+| **financial_memory** | Chat history, lessons, ebooks | Chat interactions, knowledge feeder | Chat UI, /query endpoint |
+| **trading_patterns** | Historical market patterns | process_pipeline.sh | Chat UI (optional), /query endpoint |
+| **live_analysis** | Current market analysis | Live trading analyzer | Chat UI (optional), /query endpoint |
+
+**Collection Selector in Chat UI:**
+- Users can select which collections to query via checkboxes
+- Default: `financial_memory` only
+- Optional: Add `trading_patterns` and `live_analysis` for enhanced context
+- Extensible for future collection types
+
+#### Which Components Use RAG + LLM?
+
+| Component | Uses RAG? | Uses LLM? | Purpose |
+|-----------|-----------|-----------|---------|
+| **Chat UI** (/chat) | ✅ Yes | ✅ Yes | Knowledge-enhanced conversations |
+| **/query endpoint** | ✅ Yes | ✅ Yes | Trading insights with ebook knowledge |
+| **/upload endpoint** | ❌ No | ❌ No | Pure technical analysis calculations |
+| **Automated Trading** | ❌ No | ❌ No | Fast, objective technical indicators |
+| **live_trading_analyzer.py** | ❌ No | ❌ No | Real-time pattern detection |
+
+**Key Distinction:**
+- **RAG + LLM Components**: Provide knowledge-enhanced insights for human decision-making
+- **Pure Calculation Components**: Fast, objective technical analysis without LLM overhead
+
+#### Ebook Impact on Trading
+
+**Q: When I add trading ebooks (e.g., VWAP Insider) to RAG, will it affect automated trading decisions?**
+
+**A: NO** - Ebooks in RAG do **NOT** affect automated trading calculations.
+
+**What IS affected (RAG + LLM):**
+- Chat UI responses
+- /query endpoint answers
+- Knowledge-based trading insights for human traders
+
+**What is NOT affected (Pure Calculations):**
+- /upload endpoint (triggers automated technical analysis)
+- live_trading_analyzer.py (real-time pattern detection)
+- trade_recommendation_engine.py (Entry/SL/TP calculations)
+- Automated trading signals
+
+**Why this separation?**
+- **Speed**: Automated trading needs millisecond response times
+- **Objectivity**: Technical analysis should be pure math, not influenced by subjective knowledge
+- **Reliability**: RAG + LLM adds complexity; automated trading needs deterministic results
+
+**Use Case:**
+1. Upload CSV → Get objective technical Entry/SL/TP (NO ebook influence)
+2. Ask Chat UI "Why is VWAP important?" → Get ebook-enhanced explanation (WITH ebook knowledge)
+
+### Feeding Ebooks and Large Documents
+
+**Use Case**: Add trading ebooks, guides, or large markdown files to RAG for enhanced chat responses.
+
+**Example**: Feed VWAP Insider ebook (122KB, 4184 lines)
+
+**Script**: `scripts/feed_markdown_to_rag.py`
+
+**Features:**
+- Smart section extraction from markdown headers
+- Automatic chunking with overlap (1000 chars, 200 overlap)
+- Batch processing (50 entries at a time)
+- Feeds to `financial_memory` collection
+- Metadata tagging for better search
+
+**Usage:**
+
+```bash
+# Feed VWAP ebook
+python3 scripts/feed_markdown_to_rag.py --file data/vwap.md --category trading
+
+# Custom chunk size
+python3 scripts/feed_markdown_to_rag.py --file docs/guide.md --chunk-size 1500
+
+# Use fixed chunks instead of sections
+python3 scripts/feed_markdown_to_rag.py --file data/book.txt --no-sections
+
+# Custom API endpoint
+python3 scripts/feed_markdown_to_rag.py --file data/vwap.md --url http://192.168.1.100:8080
+```
+
+**Parameters:**
+- `--file`: Path to markdown/text file (required)
+- `--category`: Knowledge category (trading, technical, strategy, risk_management, general)
+- `--chunk-size`: Character chunk size (default: 1000)
+- `--no-sections`: Use fixed chunks instead of markdown sections
+- `--url`: API base URL (default: http://localhost:8080)
+- `--password`: Admin password (default: admin123)
+
+**How It Works:**
+
+1. **Read File**: Loads markdown/text content
+2. **Extract Sections**: Parses markdown headers (# Header, ## Header, etc.)
+3. **Smart Chunking**:
+   - If section > 2000 chars, split into overlapping chunks
+   - Try to break at sentence boundaries
+   - 200-char overlap for context continuity
+4. **Batch Upload**: Send 50 entries at a time to `/api/knowledge/bulk`
+5. **Metadata Tagging**: Add filename, section names, priority based on header level
+
+**After Feeding:**
+- Ebook knowledge available in Chat UI
+- Select "Chat Memory" collection to access
+- Ask questions like "What is VWAP?" and get ebook-enhanced answers
+
 ---
 
 ## Configuration

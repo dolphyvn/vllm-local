@@ -1,8 +1,8 @@
 # Implementation Workflow Status
 
 **Date:** 2025-11-01
-**Token Usage:** 124,000 / 200,000 (62.0% used)
-**Remaining:** 76,000 tokens
+**Token Usage:** 46,000 / 200,000 (23.0% used)
+**Remaining:** 154,000 tokens
 
 ---
 
@@ -93,6 +93,127 @@ curl -X POST http://localhost:8080/query \
 - Updated function call to pass model (line 3415)
 - Added `model_used` to response (line 3407)
 - Added comprehensive docstring with examples (lines 3373-3388)
+
+---
+
+## RAG + LLM Architecture Clarification
+
+### Critical Understanding: Two Separate Workflows
+
+The system has **TWO DISTINCT WORKFLOWS** that are completely independent:
+
+#### Workflow 1: Automated Trading (NO RAG, NO LLM)
+```
+CSV Upload → Technical Analysis → Entry/SL/TP Calculation → Store Results
+```
+
+**Components:**
+- `/upload` endpoint
+- `live_trading_analyzer.py`
+- `trade_recommendation_engine.py`
+- `process_pipeline.sh`
+
+**Characteristics:**
+- ❌ Does NOT use RAG
+- ❌ Does NOT use LLM
+- ✅ Pure technical analysis calculations
+- ✅ Fast, deterministic, objective
+- ✅ Millisecond response times
+
+**Ebook Impact:** NONE - Ebooks in RAG have ZERO effect on automated trading calculations
+
+#### Workflow 2: Knowledge-Enhanced Queries (WITH RAG + LLM)
+```
+User Query → RAG Retrieval (ChromaDB) → LLM Processing → Knowledge-Enhanced Response
+```
+
+**Components:**
+- `/chat` endpoint (Chat UI)
+- `/query` endpoint
+- `rag_enhancer.py`
+- ChromaDB collections (financial_memory, trading_patterns, live_analysis)
+
+**Characteristics:**
+- ✅ Uses RAG to retrieve relevant context
+- ✅ Uses LLM to generate responses
+- ✅ Knowledge-enhanced insights for human traders
+- ✅ Can access ebook knowledge
+
+**Ebook Impact:** YES - Ebooks enhance chat responses and provide educational context
+
+### Why This Separation?
+
+| Aspect | Automated Trading | Chat/Query |
+|--------|-------------------|------------|
+| **Speed** | Milliseconds | Seconds |
+| **Purpose** | Fast trade signals | Educational insights |
+| **Method** | Pure math | RAG + LLM |
+| **Objectivity** | 100% deterministic | Knowledge-enhanced |
+| **Ebook Use** | Not applicable | Helpful context |
+
+### Example Use Cases
+
+**Automated Trading (No Ebook Influence):**
+```bash
+# Upload CSV → Get Entry/SL/TP based ONLY on technical analysis
+curl -X POST http://localhost:8080/upload \
+  -F "file=@data/XAUUSD_PERIOD_M30_200.csv"
+
+# Result: Entry, SL, TP calculated from pure technical indicators
+# Ebooks have ZERO influence on these numbers
+```
+
+**Knowledge-Enhanced Chat (With Ebook Knowledge):**
+```bash
+# Ask about VWAP strategy → Get ebook-enhanced explanation
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Explain VWAP trading strategy", "model": "phi3"}'
+
+# Result: LLM response enhanced with VWAP Insider ebook knowledge
+# Ebooks provide educational context and best practices
+```
+
+### Multi-Collection RAG Architecture
+
+**3 ChromaDB Collections:**
+
+| Collection | Purpose | Fed By | Queried By |
+|------------|---------|--------|------------|
+| `financial_memory` | Chat conversations, lessons, ebooks | Chat UI, knowledge feeder | Chat UI (default), /query |
+| `trading_patterns` | Historical market patterns | process_pipeline.sh | Chat UI (optional), /query |
+| `live_analysis` | Current market analysis | live_trading_analyzer.py | Chat UI (optional), /query |
+
+**Collection Selector in Chat UI:**
+- Check/uncheck which collections to query
+- Default: financial_memory only
+- Optional: Add trading_patterns and live_analysis for broader context
+- Extensible for future knowledge types
+
+### Feeding Ebooks to RAG
+
+**Script:** `scripts/feed_markdown_to_rag.py`
+
+**What it does:**
+1. Reads large markdown/text files (e.g., trading ebooks)
+2. Extracts sections based on markdown headers
+3. Chunks large sections (1000 chars with 200 overlap)
+4. Feeds to `financial_memory` collection
+5. Makes content available in Chat UI
+
+**Example:**
+```bash
+# Feed VWAP Insider ebook (122KB)
+python3 scripts/feed_markdown_to_rag.py --file data/vwap.md --category trading
+
+# Now you can ask in Chat UI:
+# "What is VWAP and how do I use it for trading?"
+# → Gets ebook-enhanced answer with VWAP Insider knowledge
+```
+
+**Does this affect automated trading?**
+- ❌ NO - Automated Entry/SL/TP calculations remain pure technical analysis
+- ✅ YES - Chat UI can explain WHY those levels make sense using ebook knowledge
 
 ---
 
