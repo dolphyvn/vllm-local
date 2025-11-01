@@ -11,7 +11,8 @@ import base64
 import mimetypes
 import glob
 from typing import Dict, Any, List, Optional
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, UploadFile, File, Form, Body
+from contextlib import asynccontextmanager
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
@@ -649,11 +650,50 @@ def convert_mt5_to_rag_format(content: bytes, symbol: str, timeframe: str) -> by
         # Return original content if conversion fails
         return content
 
-# Initialize FastAPI app
+# Create lifespan manager
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application startup and shutdown"""
+    # Startup
+    logger.info("Starting Local Financial Assistant API")
+    logger.info(f"Configuration loaded: {config.get('default_model', 'llama3.2')} model")
+    logger.info("Memory system initialized")
+
+    # Check Ollama availability
+    try:
+        model_available = ollama_client.check_model()
+        if model_available:
+            logger.info(f"✅ Ollama model '{config.get('default_model', 'llama3.2')}' is available")
+        else:
+            available_models = ollama_client.list_models()
+            if available_models:
+                logger.warning(f"⚠️  Model '{config.get('default_model', 'llama3.2')}' not found. Available models: {', '.join(available_models)}")
+                logger.info("Please update config.json with an available model or pull the required model using 'ollama pull <model_name>'")
+            else:
+                logger.error("❌ No Ollama models found. Please install Ollama and pull a model using 'ollama pull <model_name>'")
+    except Exception as e:
+        logger.error(f"❌ Failed to connect to Ollama: {e}")
+        logger.info("Please ensure Ollama is running on http://localhost:11434")
+
+    # Check if UI files are available
+    if os.path.exists("templates/index.html"):
+        logger.info("Web UI template found - web interface available at http://localhost:8080")
+    else:
+        logger.warning("Web UI template not found - only API endpoints available")
+
+    logger.info("Web search and trading news tools initialized")
+
+    yield
+
+    # Shutdown
+    logger.info("Shutting down Local Financial Assistant API")
+
+# Initialize FastAPI app with lifespan
 app = FastAPI(
     title="Local Financial Assistant",
     description="AI-powered financial analysis and trading strategy assistant",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # Add CORS middleware
@@ -2777,39 +2817,6 @@ async def get_memories_endpoint(n: int = 10):
         logger.error(f"Failed to get memories: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services on startup"""
-    logger.info("Starting Local Financial Assistant API")
-    logger.info(f"Configuration loaded: {config.get('default_model', 'llama3.2')} model")
-    logger.info("Memory system initialized")
-
-    # Check Ollama availability
-    try:
-        model_available = ollama_client.check_model()
-        if model_available:
-            logger.info(f"✅ Ollama model '{config.get('default_model', 'llama3.2')}' is available")
-        else:
-            available_models = ollama_client.list_models()
-            if available_models:
-                logger.warning(f"⚠️  Model '{config.get('default_model', 'llama3.2')}' not found. Available models: {', '.join(available_models)}")
-                logger.info("Please update config.json with an available model or pull the required model using 'ollama pull <model_name>'")
-            else:
-                logger.error("❌ No Ollama models found. Please install Ollama and pull a model using 'ollama pull <model_name>'")
-    except Exception as e:
-        logger.error(f"❌ Failed to connect to Ollama: {e}")
-        logger.info("Please ensure Ollama is running on http://localhost:11434")
-
-    # Check if UI files are available
-    if os.path.exists("templates/index.html"):
-        logger.info("Web UI template found - web interface available at http://localhost:8080")
-    else:
-        logger.warning("Web UI template not found - only API endpoints available")
-
-    if os.path.exists("static"):
-        logger.info("Static files directory found")
-    else:
-        logger.warning("Static files directory not found")
 
 # ==================== LESSON MANAGEMENT ENDPOINTS ====================
 
@@ -4178,10 +4185,6 @@ async def get_live_analysis_stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown"""
-    logger.info("Shutting down Local Financial Assistant API")
 
 if __name__ == "__main__":
     import uvicorn
