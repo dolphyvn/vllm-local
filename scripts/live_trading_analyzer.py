@@ -1,694 +1,732 @@
 #!/usr/bin/env python3
 """
-Live Trading Data Analyzer for Real-time Trade Recommendations
-Integrates with existing RAG system to provide live trade advice
+Live Trading Analyzer - Phase 1 Implementation
+Analyzes latest market data and generates trade recommendations
+
+Features:
+- Multi-encoding CSV support
+- Technical indicators calculation (matching mt5_to_structured_json.py)
+- Current pattern detection
+- Analysis summary generation
+- JSON output for integration
+
+Usage:
+    python scripts/live_trading_analyzer.py \
+        --input data/XAUUSD_M15_200.csv \
+        --symbol XAUUSD --timeframe M15 \
+        --output data/live_analysis/XAUUSD_M15_analysis.json
 """
 
-import os
-import sys
-import json
-import time
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Tuple
-import requests
-from dataclasses import dataclass
-import ta
+import json
+import argparse
+import sys
+import os
+from datetime import datetime, timedelta
+from typing import Dict, Any, List, Optional, Tuple
+from pathlib import Path
 
-# Add parent directory for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-try:
-    from knowledge_feeder import KnowledgeEntry
-    from feed_to_rag_direct import RAGKnowledgeBase
-    KNOWLEDGE_FEEDER_AVAILABLE = True
-except ImportError:
-    KNOWLEDGE_FEEDER_AVAILABLE = False
-    print("Warning: knowledge_feeder modules not available")
-
-@dataclass
-class MarketConditions:
-    """Current market conditions for analysis"""
-    timestamp: datetime
-    price: float
-    volume: int
-    rsi: float
-    vwap: float
-    session: str
-    trend: str
-    volatility: float
-    correlation_score: float = 0.0
-
-@dataclass
-class TradeRecommendation:
-    """Live trade recommendation"""
-    direction: str  # 'BUY' or 'SELL'
-    entry_price: float
-    stop_loss: float
-    take_profit: float
-    confidence: float  # 0-100
-    reasoning: str
-    similar_patterns: List[Dict]
-    risk_reward_ratio: float
-    market_context: Dict
 
 class LiveTradingAnalyzer:
-    """Real-time trading analysis system"""
+    """Analyze live market data and generate trading recommendations"""
 
-    def __init__(self, rag_base_url="http://localhost:8080", mt5_data_path=None):
-        self.rag_base_url = rag_base_url
-        self.mt5_data_path = mt5_data_path or "./data/live"
-        self.session = requests.Session()
+    def __init__(self, symbol: str = "XAUUSD", timeframe: str = "M15"):
+        self.symbol = symbol
+        self.timeframe = timeframe
+        self.df: Optional[pd.DataFrame] = None
+        self.analysis_result: Dict[str, Any] = {}
 
-        # Initialize technical indicators calculator
-        self.indicators_calculator = TechnicalIndicators()
+    def load_csv(self, csv_path: str) -> bool:
+        """
+        Load CSV with multi-encoding support
 
-        # Session definitions (UTC)
-        self.sessions = {
-            'late_asia': (0, 2),
-            'asia': (2, 6),
-            'asia_london_overlap': (6, 8),
-            'london': (8, 12),
-            'london_ny_overlap': (12, 13),
-            'new_york': (13, 17),
-            'late_ny': (17, 20),
-            'quiet_hours': (20, 24)
-        }
+        Args:
+            csv_path: Path to CSV file
 
-        print("🔴 Live Trading Analyzer initialized")
-        print(f"📊 RAG URL: {rag_base_url}")
-        print(f"📈 Data path: {self.mt5_data_path}")
+        Returns:
+            True if successful, False otherwise
+        """
+        print(f"📂 Loading CSV: {csv_path}")
 
-    def get_current_session(self, timestamp: datetime) -> str:
-        """Determine current trading session"""
-        hour = timestamp.hour
+        # Try multiple encodings with different delimiters
+        encodings = ['utf-16-le', 'utf-16', 'utf-8', 'latin-1', 'cp1252']
+        delimiters = [',', '\t', ';']
 
-        for session_name, (start, end) in self.sessions.items():
-            if start <= hour < end:
-                return session_name
+        for encoding in encodings:
+            for delimiter in delimiters:
+                try:
+                    print(f"   Trying {encoding} with delimiter '{delimiter}'...", end=" ")
+                    df = pd.read_csv(csv_path, encoding=encoding, delimiter=delimiter)
 
-        return 'quiet_hours'
+                    # Check if we got multiple columns
+                    if len(df.columns) > 3:
+                        print(f"✅ Success! Found {len(df.columns)} columns")
+                        self.df = df
+                        return True
+                    else:
+                        print(f"⏭️  Only {len(df.columns)} column(s)")
 
-    def calculate_live_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate real-time technical indicators"""
-        # Enhanced indicators matching our enhanced processor
-        df = self.indicators_calculator.calculate_basic_indicators(df)
-        df = self.indicators_calculator.calculate_advanced_indicators(df)
-        df = self.indicators_calculator.calculate_session_vwap(df)
-        df = self.indicators_calculator.calculate_market_profile(df)
+                except Exception as e:
+                    print(f"❌")
+                    continue
 
-        return df
+        print(f"❌ Could not read CSV with any encoding/delimiter combination")
+        return False
 
-    def detect_live_patterns(self, df: pd.DataFrame, last_candles: int = 5) -> List[Dict]:
-        """Detect forming patterns in live data"""
-        patterns = []
-        current_candles = df.tail(last_candles)
+    def normalize_columns(self) -> bool:
+        """Normalize column names to standard format"""
+        print(f"🔧 Normalizing columns...")
 
-        if len(current_candles) < 5:
-            return patterns
-
-        latest_candle = current_candles.iloc[-1]
-        prev_candle = current_candles.iloc[-2]
-
-        # Get current market conditions
-        current_session = self.get_current_session(latest_candle.name)
-        rsi = latest_candle.get('rsi', 50)
-        vwap = latest_candle.get('vwap', latest_candle['close'])
-        volume_ratio = latest_candle.get('volume_ratio', 1.0)
-
-        # Detect Bull Flag formation
-        if self._detect_bull_flag_formation(current_candles):
-            patterns.append({
-                'pattern': 'Bull Flag Forming',
-                'direction': 'BUY',
-                'confidence': self._calculate_pattern_confidence('bull_flag', current_candles),
-                'entry_trigger': latest_candle['close'] + (latest_candle['high'] - latest_candle['low']) * 0.1,
-                'stop_loss': latest_candle['low'] - (latest_candle['high'] - latest_candle['low']) * 0.05,
-                'session': current_session,
-                'rsi': rsi,
-                'vwap_deviation': (latest_candle['close'] - vwap) / vwap * 100,
-                'volume_ratio': volume_ratio
-            })
-
-        # Detect Bear Flag formation
-        if self._detect_bear_flag_formation(current_candles):
-            patterns.append({
-                'pattern': 'Bear Flag Forming',
-                'direction': 'SELL',
-                'confidence': self._calculate_pattern_confidence('bear_flag', current_candles),
-                'entry_trigger': latest_candle['close'] - (latest_candle['high'] - latest_candle['low']) * 0.1,
-                'stop_loss': latest_candle['high'] + (latest_candle['high'] - latest_candle['low']) * 0.05,
-                'session': current_session,
-                'rsi': rsi,
-                'vwap_deviation': (latest_candle['close'] - vwap) / vwap * 100,
-                'volume_ratio': volume_ratio
-            })
-
-        # Detect VWAP bounce/rejection
-        if self._detect_vwap_reaction(latest_candle, vwap):
-            direction = 'BUY' if latest_candle['close'] > vwap else 'SELL'
-            patterns.append({
-                'pattern': 'VWAP Reaction',
-                'direction': direction,
-                'confidence': 75,
-                'entry_trigger': latest_candle['close'],
-                'stop_loss': vwap if direction == 'SELL' else latest_candle['low'],
-                'session': current_session,
-                'rsi': rsi,
-                'vwap_deviation': (latest_candle['close'] - vwap) / vwap * 100,
-                'volume_ratio': volume_ratio
-            })
-
-        return patterns
-
-    def _detect_bull_flag_formation(self, candles: pd.DataFrame) -> bool:
-        """Detect bull flag pattern formation"""
-        if len(candles) < 5:
+        if self.df is None:
             return False
 
-        # Strong move up followed by consolidation
-        first_candle = candles.iloc[0]
-        last_candle = candles.iloc[-1]
+        print(f"   Available columns: {list(self.df.columns)}")
 
-        # Check for strong initial move
-        price_change = (last_candle['close'] - first_candle['open']) / first_candle['open']
-
-        # Consolidation pattern (small range candles)
-        consolidation = True
-        for i in range(1, len(candles)):
-            candle_range = (candles.iloc[i]['high'] - candles.iloc[i]['low']) / candles.iloc[i]['close']
-            if candle_range > 0.01:  # More than 1% range
-                consolidation = False
-
-        return price_change > 0.005 and consolidation  # 0.5% move up
-
-    def _detect_bear_flag_formation(self, candles: pd.DataFrame) -> bool:
-        """Detect bear flag pattern formation"""
-        if len(candles) < 5:
-            return False
-
-        first_candle = candles.iloc[0]
-        last_candle = candles.iloc[-1]
-
-        price_change = (last_candle['close'] - first_candle['open']) / first_candle['open']
-
-        consolidation = True
-        for i in range(1, len(candles)):
-            candle_range = (candles.iloc[i]['high'] - candles.iloc[i]['low']) / candles.iloc[i]['close']
-            if candle_range > 0.01:
-                consolidation = False
-
-        return price_change < -0.005 and consolidation  # 0.5% move down
-
-    def _detect_vwap_reaction(self, candle: pd.Series, vwap: float) -> bool:
-        """Detect price reaction at VWAP"""
-        distance_from_vwap = abs(candle['close'] - vwap) / vwap
-        return distance_from_vwap < 0.002  # Within 0.2% of VWAP
-
-    def _calculate_pattern_confidence(self, pattern_type: str, candles: pd.DataFrame) -> float:
-        """Calculate confidence score for pattern"""
-        base_confidence = 70
-
-        # Adjust based on volume
-        latest_volume = candles.iloc[-1]['tick_volume']
-        avg_volume = candles['tick_volume'].mean()
-        volume_confidence = min(20, (latest_volume / avg_volume - 1) * 100)
-
-        # Adjust based on RSI
-        rsi = candles.iloc[-1].get('rsi', 50)
-        if 30 <= rsi <= 70:
-            rsi_confidence = 10
-        else:
-            rsi_confidence = -10
-
-        return min(95, base_confidence + volume_confidence + rsi_confidence)
-
-    def query_similar_patterns(self, current_pattern: Dict, limit: int = 10) -> List[Dict]:
-        """Query RAG for similar historical patterns"""
-        try:
-            # Construct search query
-            query_text = f"""
-            Pattern: {current_pattern['pattern']}
-            Direction: {current_pattern['direction']}
-            Session: {current_pattern['session']}
-            RSI: {current_pattern['rsi']:.1f}
-            VWAP Deviation: {current_pattern['vwap_deviation']:.2f}%
-            Volume Ratio: {current_pattern['volume_ratio']:.2f}
-
-            Show me similar patterns with actual outcomes, including:
-            - Entry price
-            - Stop loss level
-            - Take profit level
-            - Win rate
-            - Average risk/reward ratio
-            """
-
-            # Enhanced query with LLM integration
-            query_payload = {
-                "query": query_text,
-                "limit": limit,
-                "max_context": 5,  # Request enhanced context for LLM analysis
-                "filters": {
-                    "pattern": current_pattern['pattern'],
-                    "direction": current_pattern['direction'],
-                    "session": current_pattern['session']
-                }
-            }
-
-            response = self.session.post(
-                f"{self.rag_base_url}/query",
-                json=query_payload
-            )
-
-            if response.status_code == 200:
-                result = response.json()
-
-                # Check if we have enhanced LLM analysis
-                if 'enhanced_recommendation' in result:
-                    print("🧠 Using LLM-enhanced analysis")
-                    return self._process_enhanced_response(result, current_pattern)
-                else:
-                    # Fallback to regular RAG results
-                    return result.get('results', [])
-            else:
-                print(f"❌ RAG query failed: {response.status_code}")
-                return []
-
-        except Exception as e:
-            print(f"❌ Error querying RAG: {e}")
-            return []
-
-    def _process_enhanced_response(self, result: Dict, current_pattern: Dict) -> List[Dict]:
-        """Process enhanced LLM+RAG response and return compatible format"""
-
-        enhanced_recommendation = result.get('enhanced_recommendation', {})
-        llm_insights = enhanced_recommendation.get('llm_insights', {})
-
-        # Create enhanced result entry that's compatible with existing processing
-        enhanced_entry = {
-            'pattern': current_pattern['pattern'],
-            'direction': current_pattern['direction'],
-            'session': current_pattern['session'],
-            'outcome': {
-                'result': enhanced_recommendation.get('strategy', 'HOLD'),
-                'confidence': enhanced_recommendation.get('enhanced_confidence', 50),
-                'entry_price': enhanced_recommendation.get('entry_price'),
-                'stop_loss': enhanced_recommendation.get('stop_loss'),
-                'take_profit': enhanced_recommendation.get('take_profit'),
-                'risk_reward_ratio': enhanced_recommendation.get('risk_reward_ratio', 0),
-                'win_rate': enhanced_recommendation.get('confidence', 50) / 100,  # Convert to decimal
-                'future_candles': []  # No future data in live analysis
-            },
-            'llm_analysis': {
-                'market_analysis': enhanced_recommendation.get('market_analysis'),
-                'risk_assessment': enhanced_recommendation.get('risk_assessment'),
-                'confidence_level': llm_insights.get('confidence_level', 5),
-                'key_levels': llm_insights.get('key_levels', []),
-                'summary': llm_insights.get('summary', '')
-            },
-            'enhanced_signals': enhanced_recommendation.get('enhanced_signals', []),
-            'analysis_sources': enhanced_recommendation.get('analysis_sources', ['RAG Database']),
-            'reasoning': enhanced_recommendation.get('reasoning', '')
+        # Column mapping for different formats
+        column_map = {
+            'DateTime': 'timestamp',
+            'Timestamp': 'timestamp',
+            'Date': 'timestamp',
+            'Time': 'timestamp',
+            'Open': 'open',
+            'High': 'high',
+            'Low': 'low',
+            'Close': 'close',
+            'Volume': 'volume',
+            'TickVolume': 'volume',
+            'tick_volume': 'volume',
+            'Candle': 'candle_index'
         }
 
-        # Return as single-item list to maintain compatibility
-        return [enhanced_entry]
+        # Apply mapping
+        self.df = self.df.rename(columns=column_map)
 
-    def generate_trade_recommendation(self, live_pattern: Dict, similar_patterns: List[Dict]) -> TradeRecommendation:
-        """Generate comprehensive trade recommendation with LLM enhancement"""
+        # Ensure required columns exist
+        required = ['timestamp', 'open', 'high', 'low', 'close']
+        missing = [col for col in required if col not in self.df.columns]
 
-        if not similar_patterns:
-            # Fallback recommendation based on pattern
-            return TradeRecommendation(
-                direction=live_pattern['direction'],
-                entry_price=live_pattern['entry_trigger'],
-                stop_loss=live_pattern['stop_loss'],
-                take_profit=self._calculate_default_take_profit(live_pattern),
-                confidence=live_pattern['confidence'],
-                reasoning=f"Based on {live_pattern['pattern']} pattern during {live_pattern['session']} session",
-                similar_patterns=[],
-                risk_reward_ratio=2.0,
-                market_context=live_pattern
-            )
+        if missing:
+            print(f"❌ Missing required columns: {missing}")
+            print(f"   Available: {list(self.df.columns)}")
+            return False
 
-        # Check if we have LLM-enhanced analysis
-        llm_analysis = None
-        enhanced_recommendation = None
+        # Add volume if missing
+        if 'volume' not in self.df.columns:
+            print(f"⚠️  No volume column, using default value 1000")
+            self.df['volume'] = 1000
 
-        if similar_patterns and 'llm_analysis' in similar_patterns[0]:
-            llm_analysis = similar_patterns[0]['llm_analysis']
-            # Extract enhanced recommendation data if available
-            if 'outcome' in similar_patterns[0]:
-                outcome = similar_patterns[0]['outcome']
-                enhanced_recommendation = {
-                    'strategy': outcome.get('result', 'HOLD'),
-                    'confidence': outcome.get('confidence', 50),
-                    'entry_price': outcome.get('entry_price'),
-                    'stop_loss': outcome.get('stop_loss'),
-                    'take_profit': outcome.get('take_profit'),
-                    'risk_reward_ratio': outcome.get('risk_reward_ratio', 2.0)
-                }
+        print(f"✅ Columns normalized: {list(self.df.columns)}")
+        return True
 
-        # Analyze similar patterns
-        successful_trades = [p for p in similar_patterns if p.get('outcome', {}).get('result') == 'WIN']
-        win_rate = len(successful_trades) / len(similar_patterns) if similar_patterns else 0
+    def parse_timestamps(self) -> bool:
+        """Parse and validate timestamps"""
+        print(f"🕐 Parsing timestamps...")
 
-        # Calculate average levels from successful trades
-        if successful_trades:
-            avg_risk_reward = np.mean([p.get('outcome', {}).get('risk_reward_ratio', 2.0) for p in successful_trades])
-            avg_win_rate = np.mean([p.get('outcome', {}).get('win_rate', 0.6) for p in successful_trades])
-        else:
-            avg_risk_reward = 2.0
-            avg_win_rate = 0.5
+        if self.df is None:
+            return False
 
-        # Use enhanced recommendation if available, otherwise calculate from pattern
-        if enhanced_recommendation:
-            entry_price = enhanced_recommendation.get('entry_price', live_pattern['entry_trigger'])
-            stop_loss = enhanced_recommendation.get('stop_loss', live_pattern['stop_loss'])
-            take_profit = enhanced_recommendation.get('take_profit', self._calculate_default_take_profit(live_pattern))
-            confidence = enhanced_recommendation.get('confidence', live_pattern['confidence'])
-            risk_reward_ratio = enhanced_recommendation.get('risk_reward_ratio', avg_risk_reward)
-        else:
-            # Adjust confidence based on historical performance
-            confidence = min(95, live_pattern['confidence'] * (0.5 + win_rate))
-            entry_price = live_pattern['entry_trigger']
-            stop_loss = live_pattern['stop_loss']
-            take_profit = self._calculate_optimal_take_profit(entry_price, stop_loss, avg_risk_reward)
-            risk_reward_ratio = avg_risk_reward
-
-        # Build enhanced reasoning
-        reasoning = f"""
-{live_pattern['pattern']} detected during {live_pattern['session']} session
-
-Historical Analysis:
-- {len(similar_patterns)} similar patterns found
-- Win rate: {win_rate*100:.1f}%
-- Average risk/reward: {avg_risk_reward:.1f}:1
-
-Current Conditions:
-- RSI: {live_pattern['rsi']:.1f}
-- VWAP Deviation: {live_pattern['vwap_deviation']:.2f}%
-- Volume Ratio: {live_pattern['volume_ratio']:.2f}
-"""
-
-        # Add LLM insights if available
-        if llm_analysis:
-            reasoning += f"""
-LLM Analysis (Confidence: {llm_analysis.get('confidence_level', 5)}/10):
-{llm_analysis.get('summary', '')}
-
-Key Levels: {', '.join([f'${level:.2f}' for level in llm_analysis.get('key_levels', [])[:3]])}
-Analysis Sources: {', '.join(similar_patterns[0].get('analysis_sources', ['RAG Database']))}
-"""
-
-        return TradeRecommendation(
-            direction=enhanced_recommendation.get('strategy', live_pattern['direction']) if enhanced_recommendation else live_pattern['direction'],
-            entry_price=entry_price,
-            stop_loss=stop_loss,
-            take_profit=take_profit,
-            confidence=confidence,
-            reasoning=reasoning.strip(),
-            similar_patterns=similar_patterns[:5],  # Top 5 similar patterns
-            risk_reward_ratio=risk_reward_ratio,
-            market_context={
-                **live_pattern,
-                'llm_analysis': llm_analysis,
-                'enhanced_signals': similar_patterns[0].get('enhanced_signals', []) if llm_analysis else []
-            }
-        )
-
-    def _calculate_default_take_profit(self, pattern: Dict) -> float:
-        """Calculate default take profit based on pattern"""
-        entry = pattern['entry_trigger']
-        stop = pattern['stop_loss']
-        risk = abs(entry - stop)
-
-        if pattern['direction'] == 'BUY':
-            return entry + risk * 2.0  # 2:1 risk/reward
-        else:
-            return entry - risk * 2.0
-
-    def _calculate_optimal_take_profit(self, entry: float, stop: float, avg_risk_reward: float) -> float:
-        """Calculate optimal take profit based on historical averages"""
-        risk = abs(entry - stop)
-
-        if entry > stop:  # Long position
-            return entry + risk * avg_risk_reward
-        else:  # Short position
-            return entry - risk * avg_risk_reward
-
-    def analyze_live_market(self, live_data_path: str) -> List[TradeRecommendation]:
-        """Analyze live market data and generate trade recommendations"""
-        print(f"\n🔍 Analyzing live market data: {live_data_path}")
-
-        # Load live data
         try:
-            df = pd.read_csv(live_data_path)
+            self.df['timestamp'] = pd.to_datetime(self.df['timestamp'])
 
-            # Handle both RAG format (DateTime) and MT5 format (timestamp)
-            if 'DateTime' in df.columns:
-                df['timestamp'] = pd.to_datetime(df['DateTime'])
-                # Map RAG format columns to expected lowercase names
-                column_mapping = {
-                    'Open': 'open',
-                    'High': 'high',
-                    'Low': 'low',
-                    'Close': 'close',
-                    'Volume': 'tick_volume'
-                }
-                df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
-                print(f"✅ Loaded RAG format data: {len(df)} candles")
-            elif 'timestamp' in df.columns:
-                df['timestamp'] = pd.to_datetime(df['timestamp'])
-                print(f"✅ Loaded MT5 format data: {len(df)} candles")
-            else:
-                print(f"❌ No valid timestamp column found. Columns: {list(df.columns)}")
-                return []
+            # Sort by timestamp
+            self.df = self.df.sort_values('timestamp').reset_index(drop=True)
 
-            df.set_index('timestamp', inplace=True)
+            # Check for missing timestamps
+            if self.df['timestamp'].isna().any():
+                na_count = self.df['timestamp'].isna().sum()
+                print(f"⚠️  {na_count} invalid timestamps, creating synthetic ones...")
 
-            if len(df) < 50:  # Need at least 50 candles for analysis
-                print(f"❌ Insufficient data: {len(df)} candles (need 50+)")
-                return []
+                # Create synthetic timestamps for missing values
+                start_date = self.df['timestamp'].dropna().iloc[0] if len(self.df['timestamp'].dropna()) > 0 else datetime.now()
+                synthetic_timestamps = pd.date_range(start=start_date, periods=len(self.df), freq=self._get_frequency())
+                self.df.loc[self.df['timestamp'].isna(), 'timestamp'] = synthetic_timestamps[self.df['timestamp'].isna()]
+
+            print(f"✅ Timestamps parsed: {self.df['timestamp'].min()} to {self.df['timestamp'].max()}")
+            return True
 
         except Exception as e:
-            print(f"❌ Error loading live data: {e}")
-            return []
+            print(f"❌ Timestamp parsing failed: {e}")
+            return False
 
-        # Calculate indicators
-        df = self.calculate_live_indicators(df)
+    def _get_frequency(self) -> str:
+        """Get pandas frequency string from timeframe"""
+        freq_map = {
+            'M1': '1min', 'M5': '5min', 'M15': '15min', 'M30': '30min',
+            'H1': '1H', 'H4': '4H', 'D1': '1D', 'W1': '1W', 'MN1': '1M'
+        }
+        return freq_map.get(self.timeframe, '15min')
 
-        # Detect patterns
-        live_patterns = self.detect_live_patterns(df)
+    def calculate_indicators(self) -> bool:
+        """Calculate technical indicators matching mt5_to_structured_json.py"""
+        print(f"📊 Calculating indicators...")
 
-        if not live_patterns:
-            print("📊 No patterns detected in current market")
-            return []
+        if self.df is None:
+            return False
 
-        recommendations = []
-        print(f"🎯 Detected {len(live_patterns)} potential patterns")
+        try:
+            close = self.df['close'].values
+            high = self.df['high'].values
+            low = self.df['low'].values
+            volume = self.df['volume'].values
 
-        for pattern in live_patterns:
-            print(f"\n📈 Analyzing {pattern['pattern']} - {pattern['direction']}")
+            # === MOMENTUM INDICATORS ===
 
-            # Query similar patterns from RAG
-            similar_patterns = self.query_similar_patterns(pattern)
+            # RSI (14)
+            delta = pd.Series(close).diff()
+            gain = delta.where(delta > 0, 0).rolling(window=14, min_periods=1).mean()
+            loss = -delta.where(delta < 0, 0).rolling(window=14, min_periods=1).mean()
+            rs = gain / loss.replace(0, np.inf)
+            self.df['rsi'] = 100 - (100 / (1 + rs))
+            self.df['rsi'] = self.df['rsi'].fillna(50)
 
-            # Generate recommendation
-            recommendation = self.generate_trade_recommendation(pattern, similar_patterns)
-            recommendations.append(recommendation)
+            # MACD (12, 26, 9)
+            exp12 = pd.Series(close).ewm(span=12, adjust=False).mean()
+            exp26 = pd.Series(close).ewm(span=26, adjust=False).mean()
+            self.df['macd'] = exp12 - exp26
+            self.df['macd_signal'] = self.df['macd'].ewm(span=9, adjust=False).mean()
+            self.df['macd_histogram'] = self.df['macd'] - self.df['macd_signal']
 
-            # Display recommendation
-            self._display_recommendation(recommendation)
+            # Stochastic Oscillator (14, 3, 3)
+            low_14 = pd.Series(low).rolling(window=14, min_periods=1).min()
+            high_14 = pd.Series(high).rolling(window=14, min_periods=1).max()
+            self.df['stoch_k'] = 100 * ((pd.Series(close) - low_14) / (high_14 - low_14).replace(0, 1))
+            self.df['stoch_d'] = self.df['stoch_k'].rolling(window=3, min_periods=1).mean()
 
-        return recommendations
+            # === TREND INDICATORS ===
 
-    def _display_recommendation(self, rec: TradeRecommendation):
-        """Display trade recommendation in console"""
-        print(f"\n{'='*60}")
-        print(f"🎯 TRADE RECOMMENDATION - {rec.direction}")
-        print(f"{'='*60}")
+            # EMAs
+            self.df['ema_9'] = pd.Series(close).ewm(span=9, adjust=False).mean()
+            self.df['ema_20'] = pd.Series(close).ewm(span=20, adjust=False).mean()
+            self.df['ema_50'] = pd.Series(close).ewm(span=50, adjust=False).mean()
+            self.df['ema_200'] = pd.Series(close).ewm(span=200, adjust=False).mean()
 
-        # Safely format values that might be None
-        if rec.entry_price:
-            print(f"📍 Entry Price: ${rec.entry_price:.5f}")
+            # SMAs
+            self.df['sma_20'] = pd.Series(close).rolling(window=20, min_periods=1).mean()
+            self.df['sma_50'] = pd.Series(close).rolling(window=50, min_periods=1).mean()
+
+            # === VOLATILITY INDICATORS ===
+
+            # Bollinger Bands (20, 2)
+            self.df['bb_middle'] = pd.Series(close).rolling(window=20, min_periods=1).mean()
+            bb_std = pd.Series(close).rolling(window=20, min_periods=1).std()
+            self.df['bb_upper'] = self.df['bb_middle'] + (bb_std * 2)
+            self.df['bb_lower'] = self.df['bb_middle'] - (bb_std * 2)
+            self.df['bb_width'] = self.df['bb_upper'] - self.df['bb_lower']
+
+            # ATR (14)
+            high_low = pd.Series(high) - pd.Series(low)
+            high_close = np.abs(pd.Series(high) - pd.Series(close).shift())
+            low_close = np.abs(pd.Series(low) - pd.Series(close).shift())
+            true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+            self.df['atr'] = true_range.rolling(window=14, min_periods=1).mean()
+            self.df['atr'] = self.df['atr'].fillna(self.df['atr'].mean())
+
+            # === VOLUME INDICATORS ===
+
+            # Volume SMA and ratio
+            self.df['volume_sma'] = pd.Series(volume).rolling(window=20, min_periods=1).mean()
+            self.df['volume_ratio'] = pd.Series(volume) / self.df['volume_sma'].replace(0, 1)
+
+            # VWAP (Volume Weighted Average Price)
+            typical_price = (pd.Series(high) + pd.Series(low) + pd.Series(close)) / 3
+            self.df['vwap'] = (typical_price * pd.Series(volume)).cumsum() / pd.Series(volume).cumsum()
+
+            # === PRICE ACTION ===
+
+            # Price changes
+            self.df['price_change_pct'] = pd.Series(close).pct_change() * 100
+            self.df['price_change_abs'] = pd.Series(close).diff()
+
+            # Candle body and wicks
+            self.df['body_size'] = np.abs(self.df['close'] - self.df['open'])
+            self.df['upper_wick'] = pd.Series(high) - pd.DataFrame({'open': self.df['open'], 'close': self.df['close']}).max(axis=1)
+            self.df['lower_wick'] = pd.DataFrame({'open': self.df['open'], 'close': self.df['close']}).min(axis=1) - pd.Series(low)
+            self.df['hl_range'] = pd.Series(high) - pd.Series(low)
+
+            # Fill NaN values
+            self.df = self.df.ffill().bfill()
+
+            print(f"✅ Calculated {len([c for c in self.df.columns if c not in ['timestamp', 'open', 'high', 'low', 'close', 'volume']])} indicators")
+            return True
+
+        except Exception as e:
+            print(f"❌ Indicator calculation failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def detect_current_pattern(self) -> Dict[str, Any]:
+        """Detect current trading pattern"""
+        print(f"🔍 Detecting current pattern...")
+
+        if self.df is None or len(self.df) < 10:
+            return {"pattern": "insufficient_data", "confidence": 0}
+
+        # Get the last few candles for pattern detection
+        recent = self.df.tail(10)
+        last = self.df.iloc[-1]
+        prev = self.df.iloc[-2]
+
+        pattern_info = {
+            "name": "unknown",
+            "type": "unknown",
+            "direction": "unknown",
+            "quality": 0.0,
+            "confidence": 0.0
+        }
+
+        # Detect bullish engulfing
+        if (prev['close'] < prev['open'] and  # Previous candle is bearish
+            last['close'] > last['open'] and   # Current candle is bullish
+            last['open'] < prev['close'] and   # Opens below previous close
+            last['close'] > prev['open']):     # Closes above previous open
+
+            pattern_info = {
+                "name": "bullish_engulfing",
+                "type": "reversal",
+                "direction": "bullish",
+                "quality": 0.85,
+                "confidence": 85
+            }
+
+        # Detect bearish engulfing
+        elif (prev['close'] > prev['open'] and  # Previous candle is bullish
+              last['close'] < last['open'] and   # Current candle is bearish
+              last['open'] > prev['close'] and   # Opens above previous close
+              last['close'] < prev['open']):     # Closes below previous open
+
+            pattern_info = {
+                "name": "bearish_engulfing",
+                "type": "reversal",
+                "direction": "bearish",
+                "quality": 0.85,
+                "confidence": 85
+            }
+
+        # Detect hammer (potential bullish reversal)
+        elif (last['lower_wick'] > 2 * last['body_size'] and  # Long lower wick
+              last['upper_wick'] < 0.1 * last['body_size'] and  # Small upper wick
+              last['close'] > prev['close']):                 # Higher close
+
+            pattern_info = {
+                "name": "hammer",
+                "type": "reversal",
+                "direction": "bullish",
+                "quality": 0.75,
+                "confidence": 75
+            }
+
+        # Detect shooting star (potential bearish reversal)
+        elif (last['upper_wick'] > 2 * last['body_size'] and   # Long upper wick
+              last['lower_wick'] < 0.1 * last['body_size'] and  # Small lower wick
+              last['close'] < prev['close']):                 # Lower close
+
+            pattern_info = {
+                "name": "shooting_star",
+                "type": "reversal",
+                "direction": "bearish",
+                "quality": 0.75,
+                "confidence": 75
+            }
+
+        # Detect trend based on moving averages
+        elif (last['ema_9'] > last['ema_20'] > last['ema_50']):
+            pattern_info = {
+                "name": "uptrend_continuation",
+                "type": "continuation",
+                "direction": "bullish",
+                "quality": 0.70,
+                "confidence": 70
+            }
+
+        elif (last['ema_9'] < last['ema_20'] < last['ema_50']):
+            pattern_info = {
+                "name": "downtrend_continuation",
+                "type": "continuation",
+                "direction": "bearish",
+                "quality": 0.70,
+                "confidence": 70
+            }
+
+        # Detect consolidation
+        elif abs(last['ema_9'] - last['ema_20']) < 0.01 * last['close']:
+            pattern_info = {
+                "name": "consolidation",
+                "type": "continuation",
+                "direction": "neutral",
+                "quality": 0.60,
+                "confidence": 60
+            }
+
+        print(f"✅ Pattern detected: {pattern_info['name']} (confidence: {pattern_info['confidence']}%)")
+        return pattern_info
+
+    def get_market_context(self) -> Dict[str, Any]:
+        """Analyze current market context"""
+        print(f"📋 Analyzing market context...")
+
+        if self.df is None:
+            return {}
+
+        last = self.df.iloc[-1]
+
+        # Get trend description
+        if last['ema_9'] > last['ema_20'] > last['ema_50']:
+            trend = "strong_bullish"
+        elif last['ema_9'] > last['ema_20']:
+            trend = "bullish"
+        elif last['ema_9'] < last['ema_20'] < last['ema_50']:
+            trend = "strong_bearish"
+        elif last['ema_9'] < last['ema_20']:
+            trend = "bearish"
         else:
-            print("📍 Entry Price: N/A")
+            trend = "neutral"
 
-        if rec.stop_loss:
-            print(f"🛑 Stop Loss:   ${rec.stop_loss:.5f}")
+        # Get RSI state
+        if last['rsi'] >= 70:
+            rsi_state = "overbought"
+        elif last['rsi'] <= 30:
+            rsi_state = "oversold"
+        elif last['rsi'] > 55:
+            rsi_state = "bullish"
+        elif last['rsi'] < 45:
+            rsi_state = "bearish"
         else:
-            print("🛑 Stop Loss:   N/A")
+            rsi_state = "neutral"
 
-        if rec.take_profit:
-            print(f"🎯 Take Profit: ${rec.take_profit:.5f}")
+        # Get volume state
+        if last['volume_ratio'] >= 2.0:
+            vol_state = "very_high"
+        elif last['volume_ratio'] >= 1.5:
+            vol_state = "high"
+        elif last['volume_ratio'] >= 0.8:
+            vol_state = "normal"
         else:
-            print("🎯 Take Profit: N/A")
+            vol_state = "low"
 
-        if rec.risk_reward_ratio:
-            print(f"📊 Risk/Reward:  {rec.risk_reward_ratio:.1f}:1")
+        # Get trading session
+        hour = last['timestamp'].hour
+        if 0 <= hour < 8:
+            session = "asia"
+        elif 8 <= hour < 13:
+            session = "london"
+        elif 13 <= hour < 17:
+            session = "newyork"
+        elif 17 <= hour < 22:
+            session = "us_late"
         else:
-            print("📊 Risk/Reward:  N/A")
+            session = "pacific"
 
-        if rec.confidence:
-            print(f"💪 Confidence:   {rec.confidence:.0f}%")
+        # Find support and resistance levels
+        recent_highs = self.df['high'].tail(20).max()
+        recent_lows = self.df['low'].tail(20).min()
+        current_price = last['close']
+
+        resistance_levels = [
+            recent_highs,
+            last['bb_upper'],
+            last['ema_200']
+        ]
+        support_levels = [
+            recent_lows,
+            last['bb_lower'],
+            last['ema_200']
+        ]
+
+        # Clean and sort levels
+        resistance_levels = sorted([x for x in resistance_levels if x > current_price and not np.isnan(x)])
+        support_levels = sorted([x for x in support_levels if x < current_price and not np.isnan(x)], reverse=True)
+
+        context = {
+            "trend": trend,
+            "rsi_state": rsi_state,
+            "volume_state": vol_state,
+            "session": session,
+            "current_price": float(current_price),
+            "price_position": {
+                "distance_to_resistance": float(resistance_levels[0] - current_price) if resistance_levels else 0,
+                "distance_to_support": float(current_price - support_levels[0]) if support_levels else 0
+            },
+            "levels": {
+                "support": [float(x) for x in support_levels[:3]],
+                "resistance": [float(x) for x in resistance_levels[:3]]
+            }
+        }
+
+        print(f"✅ Context analyzed: {trend} trend, {rsi_state} RSI, {vol_state} volume")
+        return context
+
+    def generate_analysis_summary(self) -> Dict[str, Any]:
+        """Generate comprehensive analysis summary"""
+        print(f"📝 Generating analysis summary...")
+
+        if self.df is None:
+            return {}
+
+        # Get components
+        pattern = self.detect_current_pattern()
+        context = self.get_market_context()
+        last = self.df.iloc[-1]
+
+        # Calculate key metrics
+        price_change_24h = ((last['close'] - self.df['close'].iloc[-96]) / self.df['close'].iloc[-96] * 100) if len(self.df) >= 96 else 0
+        volatility = self.df['price_change_pct'].tail(20).std()
+        volume_surge = last['volume_ratio']
+
+        # Generate summary text
+        summary_parts = [
+            f"{self.symbol} {self.timeframe} Analysis",
+            f"Price: {last['close']:.2f} ({price_change_24h:+.2f}%)",
+            f"Pattern: {pattern['name'].replace('_', ' ').title()} ({pattern['confidence']}% confidence)",
+            f"Trend: {context['trend'].replace('_', ' ').title()}",
+            f"RSI: {last['rsi']:.0f} ({context['rsi_state']})",
+            f"Volume: {volume_surge:.1f}x average ({context['volume_state']})",
+            f"Session: {context['session'].title()}",
+            f"ATR: {last['atr']:.2f}",
+            f"Volatility: {volatility:.2f}%"
+        ]
+
+        summary = " | ".join(summary_parts)
+
+        # Generate trading recommendation (basic)
+        recommendation = self._generate_basic_recommendation(pattern, context, last)
+
+        analysis = {
+            "symbol": self.symbol,
+            "timeframe": self.timeframe,
+            "timestamp": last['timestamp'].isoformat(),
+            "current_price": float(last['close']),
+            "pattern": pattern,
+            "context": context,
+            "indicators": {
+                "momentum": {
+                    "rsi": float(last['rsi']),
+                    "macd": float(last['macd']),
+                    "macd_signal": float(last['macd_signal']),
+                    "stoch_k": float(last['stoch_k']),
+                    "stoch_d": float(last['stoch_d'])
+                },
+                "trend": {
+                    "ema_9": float(last['ema_9']),
+                    "ema_20": float(last['ema_20']),
+                    "ema_50": float(last['ema_50']),
+                    "sma_20": float(last['sma_20']),
+                    "sma_50": float(last['sma_50'])
+                },
+                "volatility": {
+                    "atr": float(last['atr']),
+                    "bb_upper": float(last['bb_upper']),
+                    "bb_middle": float(last['bb_middle']),
+                    "bb_lower": float(last['bb_lower'])
+                },
+                "volume": {
+                    "volume_ratio": float(last['volume_ratio']),
+                    "vwap": float(last['vwap'])
+                }
+            },
+            "market_metrics": {
+                "price_change_24h_pct": float(price_change_24h),
+                "volatility_20d": float(volatility),
+                "volume_surge": float(volume_surge)
+            },
+            "recommendation": recommendation,
+            "summary": summary,
+            "data_points": len(self.df),
+            "analysis_time": datetime.now().isoformat()
+        }
+
+        self.analysis_result = analysis
+        print(f"✅ Analysis summary generated")
+        return analysis
+
+    def _generate_basic_recommendation(self, pattern: Dict, context: Dict, last_candle: pd.Series) -> Dict[str, Any]:
+        """Generate basic trade recommendation"""
+
+        # Simple recommendation logic based on pattern and context
+        direction = "HOLD"
+        confidence = 50
+        reasoning = []
+
+        # Bullish signals
+        bullish_signals = 0
+        bearish_signals = 0
+
+        if pattern['direction'] == 'bullish' and pattern['confidence'] >= 70:
+            bullish_signals += 1
+            reasoning.append(f"Bullish {pattern['name']} pattern detected")
+
+        if context['rsi_state'] == 'oversold':
+            bullish_signals += 1
+            reasoning.append("RSI oversold - potential bounce")
+
+        if context['trend'] in ['bullish', 'strong_bullish']:
+            bullish_signals += 1
+            reasoning.append(f"Trend is {context['trend']}")
+
+        if context['volume_state'] in ['high', 'very_high']:
+            bullish_signals += 0.5
+            reasoning.append("High volume supports move")
+
+        # Bearish signals
+        if pattern['direction'] == 'bearish' and pattern['confidence'] >= 70:
+            bearish_signals += 1
+            reasoning.append(f"Bearish {pattern['name']} pattern detected")
+
+        if context['rsi_state'] == 'overbought':
+            bearish_signals += 1
+            reasoning.append("RSI overbought - potential pullback")
+
+        if context['trend'] in ['bearish', 'strong_bearish']:
+            bearish_signals += 1
+            reasoning.append(f"Trend is {context['trend']}")
+
+        # Determine direction and confidence
+        if bullish_signals > bearish_signals + 1:
+            direction = "LONG"
+            confidence = min(50 + (bullish_signals * 15), 85)
+        elif bearish_signals > bullish_signals + 1:
+            direction = "SHORT"
+            confidence = min(50 + (bearish_signals * 15), 85)
         else:
-            print("💪 Confidence:   N/A")
+            reasoning.append("Conflicting signals - wait for clarity")
 
-        print(f"\n📋 Reasoning:")
-        print(rec.reasoning)
+        # Calculate basic levels
+        current_price = float(last_candle['close'])
+        atr = float(last_candle['atr'])
 
-        if rec.similar_patterns:
-            print(f"\n📈 Similar Historical Patterns: {len(rec.similar_patterns)}")
-            for i, pattern in enumerate(rec.similar_patterns[:3], 1):
-                outcome = pattern.get('outcome', {}).get('result', 'UNKNOWN')
-                pattern_date = pattern.get('date', 'N/A')
-                print(f"  {i}. {pattern_date} - {outcome}")
+        recommendation = {
+            "direction": direction,
+            "confidence": int(confidence),
+            "entry_price": current_price,
+            "stop_loss": current_price - (2 * atr) if direction == "LONG" else current_price + (2 * atr),
+            "take_profit": current_price + (3 * atr) if direction == "LONG" else current_price - (3 * atr),
+            "risk_reward_ratio": 1.5,
+            "reasoning": "; ".join(reasoning) if reasoning else "Insufficient signals",
+            "strength": "Strong" if confidence >= 75 else "Moderate" if confidence >= 60 else "Weak"
+        }
 
-                # Show LLM enhancement if available
-                if pattern.get('llm_analysis'):
-                    llm_conf = pattern['llm_analysis'].get('confidence_level', 'N/A')
-                    print(f"      🧠 LLM Confidence: {llm_conf}/10")
+        return recommendation
 
-                if pattern.get('enhanced_signals'):
-                    signals = pattern['enhanced_signals']
-                    print(f"      🚨 Enhanced Signals: {', '.join(signals[:2])}")  # Show first 2
+    def save_json(self, output_path: str, data: Dict[str, Any]) -> bool:
+        """Save analysis to JSON file"""
+        print(f"💾 Saving analysis to: {output_path}")
 
-        # Show enhanced market context if available
-        if hasattr(rec, 'market_context') and rec.market_context:
-            context = rec.market_context
-            if context.get('llm_analysis'):
-                print(f"\n🧠 LLM Analysis Summary:")
-                llm_summary = context['llm_analysis'].get('summary', 'No summary available')
-                print(f"   {llm_summary[:200]}...")
+        try:
+            # Create output directory if needed
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-            if context.get('enhanced_signals'):
-                print(f"\n🚨 Enhanced Signals:")
-                for signal in context['enhanced_signals']:
-                    print(f"   • {signal}")
+            with open(output_path, 'w') as f:
+                json.dump(data, f, indent=2)
 
-class TechnicalIndicators:
-    """Technical indicators calculator matching enhanced processor"""
+            file_size = os.path.getsize(output_path)
+            print(f"✅ Saved {file_size / 1024:.1f} KB")
+            return True
 
-    def calculate_basic_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate basic technical indicators"""
-        # RSI
-        df['rsi'] = ta.momentum.RSIIndicator(df['close']).rsi()
+        except Exception as e:
+            print(f"❌ Save failed: {e}")
+            return False
 
-        # EMAs
-        df['ema9'] = ta.trend.EMAIndicator(df['close'], window=9).ema_indicator()
-        df['ema20'] = ta.trend.EMAIndicator(df['close'], window=20).ema_indicator()
-        df['ema50'] = ta.trend.EMAIndicator(df['close'], window=50).ema_indicator()
+    def analyze(self, csv_path: str) -> Dict[str, Any]:
+        """Complete analysis pipeline"""
+        print("=" * 70)
+        print("LIVE TRADING ANALYZER")
+        print("=" * 70)
+        print(f"Symbol: {self.symbol}")
+        print(f"Timeframe: {self.timeframe}")
+        print(f"Input: {csv_path}")
+        print("=" * 70)
 
-        # Bollinger Bands
-        bollinger = ta.volatility.BollingerBands(df['close'])
-        df['bb_upper'] = bollinger.bollinger_hband()
-        df['bb_lower'] = bollinger.bollinger_lband()
-        df['bb_middle'] = bollinger.bollinger_mavg()
+        # Step 1: Load CSV
+        if not self.load_csv(csv_path):
+            return {"error": "Failed to load CSV"}
 
-        # ATR
-        df['atr'] = ta.volatility.AverageTrueRange(df['high'], df['low'], df['close']).average_true_range()
+        # Step 2: Normalize columns
+        if not self.normalize_columns():
+            return {"error": "Failed to normalize columns"}
 
-        # Volume indicators
-        df['volume_sma'] = df['tick_volume'].rolling(window=20).mean()
-        df['volume_ratio'] = df['tick_volume'] / df['volume_sma']
+        # Step 3: Parse timestamps
+        if not self.parse_timestamps():
+            return {"error": "Failed to parse timestamps"}
 
-        return df
+        # Step 4: Calculate indicators
+        if not self.calculate_indicators():
+            return {"error": "Failed to calculate indicators"}
 
-    def calculate_advanced_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate advanced indicators"""
-        # Stochastic
-        stoch = ta.momentum.StochasticOscillator(df['high'], df['low'], df['close'])
-        df['stoch_k'] = stoch.stoch()
-        df['stoch_d'] = stoch.stoch_signal()
+        # Step 5: Generate analysis
+        analysis = self.generate_analysis_summary()
+        if not analysis:
+            return {"error": "Failed to generate analysis"}
 
-        # Williams %R
-        df['williams_r'] = ta.momentum.WilliamsRIndicator(df['high'], df['low'], df['close']).williams_r()
+        print("\n" + "=" * 70)
+        print("✅ ANALYSIS COMPLETE")
+        print("=" * 70)
+        print(f"📊 Pattern: {analysis['pattern']['name']} ({analysis['pattern']['confidence']}% confidence)")
+        print(f"📈 Direction: {analysis['recommendation']['direction']}")
+        print(f"🎯 Confidence: {analysis['recommendation']['confidence']}%")
+        print(f"💡 Entry: {analysis['recommendation']['entry_price']:.2f}")
+        print(f"🛡️  SL: {analysis['recommendation']['stop_loss']:.2f}")
+        print(f"🎉 TP: {analysis['recommendation']['take_profit']:.2f}")
+        print(f"📏 R:R: {analysis['recommendation']['risk_reward_ratio']}:1")
 
-        # CCI
-        df['cci'] = ta.trend.CCIIndicator(df['high'], df['low'], df['close']).cci()
+        return analysis
 
-        # ADX
-        adx = ta.trend.ADXIndicator(df['high'], df['low'], df['close'])
-        df['adx'] = adx.adx()
-        df['adx_pos'] = adx.adx_pos()
-        df['adx_neg'] = adx.adx_neg()
-
-        return df
-
-    def calculate_session_vwap(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate session-specific VWAP"""
-        df = df.copy()
-        df['date'] = df.index.date
-        df['hour'] = df.index.hour
-
-        # Daily VWAP - simplified approach to avoid pandas issues
-        df['daily_vwap'] = df['close'].expanding().mean()  # Use expanding mean as simple alternative
-
-        # Simple VWAP for live analysis
-        df['vwap'] = (df['close'] * df['tick_volume']).rolling(window=50).sum() / df['tick_volume'].rolling(window=50).sum()
-
-        return df
-
-    def calculate_market_profile(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate basic market profile metrics"""
-        df = df.copy()
-
-        # Simple POC calculation (highest volume price in recent window)
-        # Since rolling apply works on individual columns, we'll use a different approach
-        df['poc_price'] = np.nan
-
-        for i in range(49, len(df)):
-            window = df.iloc[i-49:i+1]  # 50-bar window
-            if not window.empty and not window['tick_volume'].isna().all():
-                max_vol_idx = window['tick_volume'].idxmax()
-                if not pd.isna(max_vol_idx) and max_vol_idx in window.index:
-                    df.iloc[i, df.columns.get_loc('poc_price')] = window.loc[max_vol_idx, 'close']
-
-        return df
 
 def main():
-    """Main function for live trading analysis"""
-    import argparse
+    parser = argparse.ArgumentParser(
+        description='Live Trading Analyzer - Phase 1',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Analyze XAUUSD M15 data
+  python scripts/live_trading_analyzer.py \\
+      --input data/XAUUSD_M15_200.csv \\
+      --symbol XAUUSD --timeframe M15 \\
+      --output data/live_analysis/XAUUSD_M15_analysis.json
 
-    parser = argparse.ArgumentParser(description='Live Trading Analysis')
-    parser.add_argument('--data', required=True, help='Path to live CSV data file')
-    parser.add_argument('--rag-url', default='http://localhost:8000', help='RAG system URL')
-    parser.add_argument('--output', help='Save recommendations to file')
+  # Analyze BTCUSD H1 data
+  python scripts/live_trading_analyzer.py \\
+      --input data/BTCUSD_H1_200.csv \\
+      --symbol BTCUSD --timeframe H1 \\
+      --output data/live_analysis/BTCUSD_H1_analysis.json
+        """
+    )
+
+    parser.add_argument('--input', required=True, help='Input CSV file')
+    parser.add_argument('--symbol', default='XAUUSD', help='Trading symbol')
+    parser.add_argument('--timeframe', default='M15', help='Timeframe')
+    parser.add_argument('--output', help='Output JSON file (optional)')
 
     args = parser.parse_args()
 
-    # Initialize analyzer
-    analyzer = LiveTradingAnalyzer(rag_base_url=args.rag_url)
+    # Validate input file
+    if not os.path.exists(args.input):
+        print(f"❌ Input file not found: {args.input}")
+        return 1
 
-    # Analyze live market
-    recommendations = analyzer.analyze_live_market(args.data)
+    # Create analyzer
+    analyzer = LiveTradingAnalyzer(args.symbol, args.timeframe)
 
-    if recommendations:
-        print(f"\n✅ Generated {len(recommendations)} trade recommendations")
+    # Run analysis
+    result = analyzer.analyze(args.input)
 
-        # Save to file if requested
-        if args.output:
-            output_data = []
-            for rec in recommendations:
-                output_data.append({
-                    'timestamp': datetime.now().isoformat(),
-                    'direction': rec.direction,
-                    'entry_price': rec.entry_price,
-                    'stop_loss': rec.stop_loss,
-                    'take_profit': rec.take_profit,
-                    'confidence': rec.confidence,
-                    'risk_reward_ratio': rec.risk_reward_ratio,
-                    'reasoning': rec.reasoning,
-                    'similar_patterns_count': len(rec.similar_patterns)
-                })
+    if "error" in result:
+        print(f"❌ Analysis failed: {result['error']}")
+        return 1
 
-            with open(args.output, 'w') as f:
-                json.dump(output_data, f, indent=2)
-            print(f"💾 Recommendations saved to: {args.output}")
+    # Save if output specified
+    if args.output:
+        if not analyzer.save_json(args.output, result):
+            return 1
+        print(f"\n💾 Analysis saved to: {args.output}")
     else:
-        print("📊 No trade recommendations generated")
+        # Save to default location
+        default_output = f"data/live_analysis/{args.symbol}_{args.timeframe}_analysis.json"
+        if analyzer.save_json(default_output, result):
+            print(f"\n💾 Analysis saved to: {default_output}")
+
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
