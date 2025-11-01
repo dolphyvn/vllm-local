@@ -1,8 +1,8 @@
 # Implementation Workflow Status
 
 **Date:** 2025-11-01
-**Token Usage:** 109,500 / 200,000 (54.8% used)
-**Remaining:** 90,500 tokens
+**Token Usage:** 124,000 / 200,000 (62.0% used)
+**Remaining:** 76,000 tokens
 
 ---
 
@@ -24,6 +24,8 @@ During architecture verification, discovered that the Live Trading Recommendatio
 
 **2. Added Collection Selector to Chat UI** (MAJOR ENHANCEMENT)
 
+**3. Created Markdown/Ebook Feeder Script** (NEW CAPABILITY)
+
 Chat UI can now query multiple ChromaDB collections simultaneously! Users can select which knowledge bases to query:
 
 - 💬 **Chat Memory** (financial_memory) - Previous conversations & lessons
@@ -38,6 +40,35 @@ Chat UI can now query multiple ChromaDB collections simultaneously! Users can se
 - `templates/index.html` (lines 197-223): Added collection selector UI
 - `static/js/app.js` (lines 362-369): Get and send selected collections
 - `static/js/app.js` (lines 1424-1434, 1675-1698): Collection selector functions
+
+**Markdown/Ebook Feeder (Enhancement #3):**
+Created `scripts/feed_markdown_to_rag.py` to ingest large text/markdown files into ChromaDB.
+
+**Features:**
+- Smart section extraction from markdown headers
+- Automatic chunking of large sections (1000 chars with 200 char overlap)
+- Batch processing (50 entries at a time)
+- Tagging and metadata support
+- Progress tracking
+- Feeds to `financial_memory` collection (accessible via Chat UI)
+
+**Usage:**
+```bash
+# Feed VWAP ebook (122KB markdown file)
+python3 scripts/feed_markdown_to_rag.py --file data/vwap.md --category trading
+
+# Custom chunk size
+python3 scripts/feed_markdown_to_rag.py --file docs/book.md --chunk-size 1500
+
+# Use fixed chunks instead of sections
+python3 scripts/feed_markdown_to_rag.py --file data/guide.txt --no-sections
+```
+
+**After Feeding:**
+- Open Chat UI at http://localhost:8080
+- Ensure "Chat Memory" collection is checked
+- Ask questions about the ebook content!
+- Example: "What is VWAP and how do I use it for trading?"
 
 **Model Selection (Enhancement #1):**
 Previously hardcoded to `gemma3:1b`, now accepts optional `model` parameter:
@@ -416,12 +447,16 @@ Done! Your new collection is now selectable in the Chat UI.
 ```
 ✅ main.py - Enhanced with model selection + multi-collection support
 ✅ rag_enhancer.py - Multi-collection query engine (209-427)
+✅ templates/index.html - Collection selector UI
+✅ static/js/app.js - Collection selection logic
 ✅ scripts/live_trading_analyzer.py - Complete (32KB, 487+ lines)
 ✅ scripts/trade_recommendation_engine.py - Complete (28KB, 598+ lines)
+✅ scripts/feed_markdown_to_rag.py - NEW: Markdown/ebook feeder (380 lines)
 ✅ scripts/mt5_to_structured_json.py - Market Profile + VWAP included
 ✅ scripts/process_pipeline.sh - Historical pattern learning pipeline
 ✅ README.md - Implementation plan documented
 ✅ WORKFLOW_STATUS.md - This file (updated with current status)
+✅ data/vwap.md - VWAP Insider ebook (122KB, ready to feed)
 ```
 
 ---
@@ -476,6 +511,14 @@ Done! Your new collection is now selectable in the Chat UI.
 > - **Solves the original problem**: Chat UI can now see trading patterns from `process_pipeline.sh`!
 > - Extensible architecture for adding future collections
 >
+> **Enhancement #3:** Markdown/Ebook Feeder Script ✨
+> - Created `scripts/feed_markdown_to_rag.py` for ingesting large text files
+> - Smart section extraction from markdown headers
+> - Automatic chunking with overlap
+> - Feeds to `financial_memory` collection
+> - Example use case: Feed 122KB VWAP trading ebook to RAG system
+> - Accessible via Chat UI after feeding
+>
 > **Files Modified:**
 > - main.py: Multi-collection support in /chat endpoint
 > - rag_enhancer.py: Query engine for multiple collections
@@ -514,11 +557,11 @@ Done! Your new collection is now selectable in the Chat UI.
 
 ## Token Usage Status
 
-- **Current:** 53,434 / 200,000 (26.7% used)
-- **Remaining:** 146,566 tokens (73.3%)
+- **Current:** 127,000 / 200,000 (63.5% used)
+- **Remaining:** 73,000 tokens (36.5%)
 - **Status:** ✅ Safe to continue
-- **Checkpoint 80%:** 106,566 tokens remaining before warning
-- **Checkpoint 90%:** 26,566 tokens remaining before stop
+- **Checkpoint 80%:** 33,000 tokens remaining before warning
+- **Checkpoint 90%:** Still safe - 17,000 tokens from stop point
 
 ---
 
