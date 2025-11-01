@@ -738,6 +738,7 @@ class StreamChatRequest(BaseModel):
     memory_context: int = 3
     files: Optional[List[Dict[str, Any]]] = None
     collections: Optional[List[str]] = None  # Collections to query
+    timeframe: Optional[str] = None  # Trading timeframe for live analysis
 
 class MemorizeRequest(BaseModel):
     key: str
