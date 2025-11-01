@@ -1071,6 +1071,103 @@ You have access to retrieved context from previous conversations and learned les
 
     return messages
 
+
+def is_trade_query(message: str) -> bool:
+    """Detect if user is asking for trade recommendations"""
+    trade_keywords = [
+        "trade setup", "trading opportunity", "best setup",
+        "entry", "stop loss", "take profit",
+        "should i buy", "should i sell",
+        "long setup", "short setup",
+        "swing trade", "day trade",
+        "market direction", "trade recommendation",
+        "what's the trade", "give me a trade",
+        "buy or sell", "go long", "go short"
+    ]
+    return any(keyword in message.lower() for keyword in trade_keywords)
+
+
+def extract_symbol(message: str) -> Optional[str]:
+    """Extract trading symbol from message"""
+    # Common trading symbols
+    symbols = ["XAUUSD", "BTCUSD", "EURUSD", "GBPUSD", "USDJPY", "ETHUSD", "US30", "NAS100", "SPX500"]
+
+    for symbol in symbols:
+        if symbol.lower() in message.lower():
+            return symbol
+    return None
+
+
+def query_live_analysis(symbol: str, timeframe: str = "M15") -> Optional[Dict[str, Any]]:
+    """
+    Query live analysis from ChromaDB for trade recommendations
+
+    Args:
+        symbol: Trading symbol
+        timeframe: Timeframe
+
+    Returns:
+        Live analysis data or None if not found
+    """
+    try:
+        # Import ChromaLiveAnalyzer
+        import sys
+        import os
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        scripts_dir = os.path.join(current_dir, "scripts")
+        sys.path.append(scripts_dir)
+
+        from chroma_live_analyzer import ChromaLiveAnalyzer
+
+        analyzer = ChromaLiveAnalyzer()
+        return analyzer.get_latest_analysis(symbol, timeframe)
+
+    except Exception as e:
+        logger.error(f"Failed to query live analysis: {e}")
+        return None
+
+
+def format_live_analysis(analysis: Dict[str, Any]) -> str:
+    """Format live analysis data for display"""
+    if not analysis or 'metadata' not in analysis:
+        return "No live analysis available"
+
+    metadata = analysis['metadata']
+
+    return f"""
+📊 LIVE ANALYSIS - {metadata.get('symbol', 'Unknown')} {metadata.get('timeframe', 'Unknown')}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎯 TRADE SETUP: {metadata.get('trade_direction', 'UNKNOWN')}
+📊 Current Price: {metadata.get('current_price', 0):.2f}
+🎯 Entry Price: {metadata.get('entry_price', 0):.2f}
+🛡️ Stop Loss: {metadata.get('stop_loss', 0):.2f}
+🎉 Take Profit: {metadata.get('take_profit', 0):.2f}
+📈 Risk/Reward: {metadata.get('risk_reward_ratio', 0):.1f}:1
+💪 Confidence: {metadata.get('confidence', 0)}%
+
+📋 PATTERN DETAILS:
+• Pattern: {metadata.get('pattern_name', 'Unknown')}
+• Type: {metadata.get('pattern_type', 'Unknown')}
+• Direction: {metadata.get('pattern_direction', 'Unknown')}
+• Pattern Confidence: {metadata.get('pattern_confidence', 0)}%
+
+📈 MARKET CONTEXT:
+• Trend: {metadata.get('trend', 'Unknown')}
+• RSI State: {metadata.get('rsi_state', 'Unknown')}
+• Volume: {metadata.get('volume_state', 'Unknown')}
+• Session: {metadata.get('session', 'Unknown')}
+
+📊 TECHNICAL INDICATORS:
+• RSI: {metadata.get('rsi', 0):.1f}
+• MACD: {metadata.get('macd', 0):.2f}
+• Volume Ratio: {metadata.get('volume_ratio', 0):.1f}x
+• ATR: {metadata.get('atr', 0):.2f}
+
+📅 Timestamp: {metadata.get('timestamp', 'Unknown')}
+    """.strip()
+
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest, http_request: Request):
     """
@@ -1133,8 +1230,38 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
         # Enhanced RAG context retrieval
         context_data = rag_enhancer.enhance_query_with_rag(request.message, max_context=request.memory_context)
 
-        # Build enhanced message with web context if available
-        if web_context:
+        # Check if this is a trade query (Phase 4)
+        if is_trade_query(request.message):
+            logger.info("🎯 Trade query detected")
+
+            # Extract symbol from message
+            symbol = extract_symbol(request.message)
+
+            if symbol:
+                # Query live analysis from ChromaDB
+                live_analysis = query_live_analysis(symbol, request.timeframe or "M15")
+
+                if live_analysis:
+                    # Found recent analysis
+                    enhanced_message = f"""User question: {request.message}
+
+📊 LIVE MARKET ANALYSIS for {symbol}:
+{format_live_analysis(live_analysis)}
+
+Please provide a comprehensive trade recommendation based on this analysis.
+Explain the setup, entry/SL/TP levels, and reasoning clearly."""
+                else:
+                    # No recent analysis found
+                    enhanced_message = f"""User question: {request.message}
+
+⚠️ No recent live analysis found for {symbol}.
+Please upload latest data first:
+curl -F "file=@{symbol}_M15_200.csv" http://localhost:8080/upload
+
+Or check historical patterns from RAG knowledge base."""
+            else:
+                enhanced_message = request.message
+        elif web_context:
             enhanced_message = f"""User question: {request.message}
 
 📡 REAL-TIME INFORMATION FROM THE WEB:
@@ -1290,8 +1417,40 @@ async def chat_stream_endpoint(request: StreamChatRequest, http_request: Request
             else:
                 enhanced_message = request.message
 
+            # Check if this is a trade query (Phase 4)
+            if is_trade_query(request.message):
+                logger.info("🎯 Trade query detected in streaming mode")
+
+                # Extract symbol from message
+                symbol = extract_symbol(request.message)
+
+                if symbol:
+                    # Query live analysis from ChromaDB
+                    live_analysis = query_live_analysis(symbol, request.timeframe or "M15")
+
+                    if live_analysis:
+                        # Found recent analysis
+                        enhanced_message = f"""{enhanced_message}
+
+📊 LIVE MARKET ANALYSIS for {symbol}:
+{format_live_analysis(live_analysis)}
+
+Please provide a comprehensive trade recommendation based on this analysis.
+Explain the setup, entry/SL/TP levels, and reasoning clearly."""
+                    else:
+                        # No recent analysis found
+                        enhanced_message = f"""{enhanced_message}
+
+⚠️ No recent live analysis found for {symbol}.
+Please upload latest data first:
+curl -F "file=@{symbol}_M15_200.csv" http://localhost:8080/upload
+
+Or check historical patterns from RAG knowledge base."""
+                else:
+                    enhanced_message = enhanced_message
+
             # Add web context if available
-            if web_context:
+            elif web_context:
                 enhanced_message = f"""{enhanced_message}
 
 📡 REAL-TIME INFORMATION FROM THE WEB:
@@ -1830,6 +1989,89 @@ async def process_full_history_to_rag(file_path: str, symbol: str, timeframe: st
         logger.error(traceback.format_exc())
 
 
+async def process_live_data_analysis(file_path: str, symbol: str, timeframe: str):
+    """
+    Background task to process live data (*_200.csv) files through live analysis pipeline
+
+    Pipeline: CSV → Live Trading Analyzer → Trade Recommendations → ChromaDB Storage
+
+    Args:
+        file_path: Path to the uploaded CSV file
+        symbol: Trading symbol (e.g., XAUUSD)
+        timeframe: Timeframe (e.g., M15, H1)
+    """
+    import subprocess
+    import os
+    import sys
+
+    try:
+        logger.info(f"🎯 Starting live analysis for {file_path}")
+        logger.info(f"   Symbol: {symbol}, Timeframe: {timeframe}")
+
+        # Get the scripts directory path
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        scripts_dir = os.path.join(current_dir, "scripts")
+
+        # Path to live trading analyzer
+        analyzer_script = os.path.join(scripts_dir, "live_trading_analyzer.py")
+
+        if not os.path.exists(analyzer_script):
+            logger.error(f"Live trading analyzer not found: {analyzer_script}")
+            return
+
+        # Build command with --add-to-rag flag for ChromaDB storage
+        cmd = [
+            sys.executable, analyzer_script,
+            "--input", file_path,
+            "--symbol", symbol,
+            "--timeframe", timeframe,
+            "--add-to-rag"  # Store in ChromaDB
+        ]
+
+        # Set environment variables for proper path resolution
+        env = os.environ.copy()
+        env["PYTHONPATH"] = scripts_dir + ":" + env.get("PYTHONPATH", "")
+
+        logger.info(f"📊 Executing: {' '.join(cmd)}")
+
+        # Execute live analysis in background
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minutes timeout (faster than RAG pipeline)
+            env=env,
+            cwd=current_dir  # Run from current directory
+        )
+
+        if result.returncode == 0:
+            logger.info(f"✅ Live analysis completed successfully for {file_path}")
+            logger.info(f"   Output: {result.stdout}")
+
+            # Update live file in data/live/ directory
+            live_dir = os.path.join(current_dir, "data", "live")
+            os.makedirs(live_dir, exist_ok=True)
+
+            live_filename = f"{symbol.upper()}_{timeframe}_LIVE.csv"
+            live_path = os.path.join(live_dir, live_filename)
+
+            # Copy file to live directory
+            import shutil
+            shutil.copy2(file_path, live_path)
+            logger.info(f"📁 Copied to live directory: {live_path}")
+
+        else:
+            logger.error(f"❌ Live analysis failed for {file_path}")
+            logger.error(f"Error: {result.stderr}")
+
+    except subprocess.TimeoutExpired:
+        logger.error(f"⏱️  Live analysis timeout for {file_path}")
+    except Exception as e:
+        logger.error(f"💥 Live analysis error for {file_path}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
 @app.post("/upload", response_model=Dict[str, Any])
 async def upload_mt5_csv(
     request: Request,
@@ -2176,6 +2418,7 @@ async def upload_mt5_csv(
 
         # Check if this is a full history file (*_0.csv) and trigger RAG pipeline
         rag_processing = False
+        live_processing = False
         if filename.endswith("_0.csv") or filename.endswith("_0.CSV"):
             logger.info(f"📊 Full history file detected: {filename}")
             logger.info(f"   Scheduling RAG pipeline processing in background...")
@@ -2191,7 +2434,17 @@ async def upload_mt5_csv(
             logger.info(f"   ✅ RAG pipeline scheduled for background processing")
         elif filename.endswith("_200.csv") or filename.endswith("_200.CSV"):
             logger.info(f"📈 Live data file detected: {filename}")
-            logger.info(f"   Saved for LLM analysis (no RAG processing needed)")
+            logger.info(f"   Scheduling live analysis in background...")
+
+            # Trigger live analysis background task (Phase 3)
+            background_tasks.add_task(
+                process_live_data_analysis,
+                file_path,
+                symbol.upper(),
+                timeframe_upper
+            )
+            live_processing = True
+            logger.info(f"   ✅ Live analysis scheduled for background processing")
         else:
             logger.info(f"📁 Standard file: {filename}")
             logger.info(f"   Saved to data directory")
@@ -2200,6 +2453,8 @@ async def upload_mt5_csv(
         # Update success message based on file type
         if rag_processing:
             message = f"Full history file uploaded. RAG pipeline processing started in background."
+        elif live_processing:
+            message = f"Live data uploaded. Live analysis started in background."
         elif filename.endswith("_200.csv") or filename.endswith("_200.CSV"):
             message = f"Live data uploaded successfully. Ready for LLM analysis."
         else:
@@ -3671,6 +3926,140 @@ Please provide a comprehensive answer using both the above real-time information
 
     except Exception as e:
         logger.error(f"Web-enhanced chat endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/live-analysis/{symbol}/{timeframe}")
+async def get_live_analysis(symbol: str, timeframe: str):
+    """
+    Get latest live analysis for a symbol and timeframe
+
+    Args:
+        symbol: Trading symbol (e.g., XAUUSD, BTCUSD)
+        timeframe: Timeframe (e.g., M15, H1, H4)
+
+    Returns:
+        Latest live analysis data
+    """
+    try:
+        # Validate symbol
+        symbol = symbol.upper()
+        valid_symbols = ["XAUUSD", "BTCUSD", "EURUSD", "GBPUSD", "USDJPY", "ETHUSD", "US30", "NAS100", "SPX500"]
+        if symbol not in valid_symbols:
+            raise HTTPException(status_code=400, detail=f"Invalid symbol: {symbol}")
+
+        # Validate timeframe
+        timeframe = timeframe.upper()
+        valid_timeframes = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1']
+        if timeframe not in valid_timeframes:
+            raise HTTPException(status_code=400, detail=f"Invalid timeframe: {timeframe}")
+
+        # Query live analysis
+        analysis = query_live_analysis(symbol, timeframe)
+
+        if not analysis:
+            return {
+                "success": False,
+                "message": f"No recent analysis found for {symbol} {timeframe}",
+                "suggestion": "Upload latest data first: curl -F \"file=@{symbol}_{timeframe}_200.csv\" http://localhost:8080/upload"
+            }
+
+        return {
+            "success": True,
+            "data": analysis,
+            "timestamp": datetime.now().isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Live analysis endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/high-confidence-setups")
+async def get_high_confidence_setups(symbol: Optional[str] = None, min_confidence: int = 70):
+    """
+    Get high confidence trade setups
+
+    Args:
+        symbol: Optional symbol filter
+        min_confidence: Minimum confidence threshold (default 70)
+
+    Returns:
+        List of high confidence setups
+    """
+    try:
+        # Import ChromaLiveAnalyzer
+        import sys
+        import os
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        scripts_dir = os.path.join(current_dir, "scripts")
+        sys.path.append(scripts_dir)
+
+        from chroma_live_analyzer import ChromaLiveAnalyzer
+
+        # Validate min_confidence
+        if not 0 <= min_confidence <= 100:
+            raise HTTPException(status_code=400, detail="min_confidence must be between 0 and 100")
+
+        # Validate symbol if provided
+        if symbol:
+            symbol = symbol.upper()
+            valid_symbols = ["XAUUSD", "BTCUSD", "EURUSD", "GBPUSD", "USDJPY", "ETHUSD", "US30", "NAS100", "SPX500"]
+            if symbol not in valid_symbols:
+                raise HTTPException(status_code=400, detail=f"Invalid symbol: {symbol}")
+
+        analyzer = ChromaLiveAnalyzer()
+        setups = analyzer.get_high_confidence_setups(symbol, min_confidence)
+
+        return {
+            "success": True,
+            "count": len(setups),
+            "filters": {
+                "symbol": symbol,
+                "min_confidence": min_confidence
+            },
+            "setups": setups,
+            "timestamp": datetime.now().isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"High confidence setups endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/live-analysis-stats")
+async def get_live_analysis_stats():
+    """
+    Get statistics about live analysis collection
+
+    Returns:
+        Collection statistics
+    """
+    try:
+        # Import ChromaLiveAnalyzer
+        import sys
+        import os
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        scripts_dir = os.path.join(current_dir, "scripts")
+        sys.path.append(scripts_dir)
+
+        from chroma_live_analyzer import ChromaLiveAnalyzer
+
+        analyzer = ChromaLiveAnalyzer()
+        stats = analyzer.get_collection_stats()
+
+        return {
+            "success": True,
+            "stats": stats,
+            "timestamp": datetime.now().isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"Live analysis stats endpoint error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
