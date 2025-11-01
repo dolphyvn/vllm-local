@@ -1,8 +1,9 @@
 # vLLM-Local Trading System
 
-**Version:** 2.0
-**Last Updated:** 2025-10-31
+**Version:** 2.1
+**Last Updated:** 2025-11-01
 **Status:** Production-Ready ✅
+**New**: 🌐 Internet Access - LLM now has real-time web search capabilities!
 
 ---
 
@@ -30,20 +31,22 @@ The **vLLM-Local Trading System** is an enterprise-grade Memory-Augmented RAG (M
 ### Key Features
 
 - **Memory-Augmented RAG System**: Semantic search with ChromaDB for historical pattern matching
+- **🌐 Internet-Connected LLM**: Real-time web search and news integration (like Claude/ChatGPT)
 - **MT5 Integration**: Automatic CSV data import with multi-encoding support (2 upload endpoints)
 - **Live Trading Analysis**: Real-time pattern detection and AI-powered trade recommendations
 - **Technical Analysis Engine**: 50+ indicators across 8 timeframes (M1, M5, M15, M30, H1, H4, D1, W1)
 - **Market Profile Analysis**: POC, Value Area, Session VWAP, Auction Theory
 - **FastAPI Backend**: Async web framework with streaming responses
-- **Web Interface**: Professional UI with real-time updates and authentication
+- **Web Interface**: Professional UI with real-time updates, authentication, and automatic web search
 
 ### System Metrics
 
-- **17,600+ lines** of production Python code
+- **18,000+ lines** of production Python code
 - **28 active** data processing scripts
 - **808 MB** processed market data
 - **24 MB** ChromaDB with 100+ trading patterns indexed
-- **14+ API endpoints** with session-based authentication
+- **22+ API endpoints** (14 core + 8 web search) with session-based authentication
+- **Internet-connected** with DuckDuckGo integration (free, privacy-focused)
 - **Zero critical issues**
 
 ---
@@ -72,6 +75,15 @@ The **vLLM-Local Trading System** is an enterprise-grade Memory-Augmented RAG (M
                                  │
                                  ▼
 ┌───────────────────────────────────────────────────────────────────┐
+│              🌐 Web Search & Real-Time Data Layer 🌐              │
+│  • DuckDuckGo Integration   • Trading News API                    │
+│  • Economic Calendar        • Market Sentiment Analysis           │
+│  • Real-time Forecasts      • Symbol-Specific News                │
+│  • Automatic Detection      • Privacy-Focused (No Tracking)       │
+└───────────────────────────────────────────────────────────────────┘
+                                 │
+                                 ▼
+┌───────────────────────────────────────────────────────────────────┐
 │                    Vector Database Layer                          │
 │  • ChromaDB Storage         • Semantic Search                     │
 │  • Pattern Storage          • Lesson Management                   │
@@ -84,6 +96,7 @@ The **vLLM-Local Trading System** is an enterprise-grade Memory-Augmented RAG (M
 │  • Chat Interface          • Memory Management                    │
 │  • File Uploads            • Authentication                       │
 │  • Streaming Responses     • Real-time Analysis                   │
+│  • Web Search Integration  • Auto Context Enhancement             │
 └───────────────────────────────────────────────────────────────────┘
                                  │
                                  ▼
@@ -91,23 +104,123 @@ The **vLLM-Local Trading System** is an enterprise-grade Memory-Augmented RAG (M
 │                    LLM Integration Layer                          │
 │  • Ollama/vLLM Support     • Multiple Models                      │
 │  • Streaming Responses     • Performance Optimization             │
+│  • Web + RAG Context       • Intelligent Query Routing            │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
 ### Data Flow
 
+**Primary Data Pipeline:**
 ```
 MT5 EA (CSV) → /upload endpoint → Technical Analysis →
 ChromaDB Storage → RAG Enhancement → Live Analysis →
 AI Recommendations → Web UI/Alerts
 ```
 
+**Chat with Internet Access:**
+```
+User Query → Keyword Detection → [Web Search] → DuckDuckGo API →
+Real-time Data → Context Building → RAG Enhancement →
+Combined Context → LLM Processing → AI Response
+```
+
+**Workflow Examples:**
+
+1. **Historical Analysis** (uses RAG only):
+   ```
+   "What is RSI?" → RAG Knowledge → LLM → Technical explanation
+   ```
+
+2. **Current Market Info** (uses Web + RAG):
+   ```
+   "Latest gold news?" → Web Search → DuckDuckGo → News articles →
+   + RAG Context → LLM → Comprehensive answer with current info
+   ```
+
 ### Architecture Patterns
 
 1. **Memory-Augmented RAG (MRAG)**: Core pattern combining conversational memory with external knowledge
-2. **Event-Driven Architecture**: Real-time data processing with async operations
-3. **Microservices Integration**: Modular components with RESTful APIs
-4. **Data Pipeline Pattern**: ETL processes for data transformation
+2. **Web-Enhanced AI**: Automatic internet access for current information (like Claude/ChatGPT)
+3. **Event-Driven Architecture**: Real-time data processing with async operations
+4. **Microservices Integration**: Modular components with RESTful APIs
+5. **Data Pipeline Pattern**: ETL processes for data transformation
+
+---
+
+## 🌐 Web Search & Internet Access
+
+### Overview
+
+Your LLM now has **full internet access** - it can search the web and fetch real-time information automatically, just like Claude or ChatGPT!
+
+### How It Works
+
+**Automatic Detection:**
+- System analyzes your question for keywords like "news", "today", "latest", "current"
+- If detected, automatically searches DuckDuckGo for real-time information
+- Combines web results with RAG historical knowledge
+- LLM provides comprehensive, up-to-date answer
+
+**Smart Routing:**
+- Questions about current events → Web search + RAG
+- Questions about concepts → RAG knowledge only
+- Technical analysis queries → RAG + historical patterns
+
+### Examples
+
+**Triggers Web Search:**
+```
+✅ "What's the latest gold news?"
+   → Fetches real-time XAUUSD news articles
+
+✅ "Show me today's economic calendar"
+   → Gets today's economic events
+
+✅ "What's the current market sentiment for EURUSD?"
+   → Fetches market sentiment data
+
+✅ "Give me a forex market overview"
+   → Gets current market overview
+```
+
+**Uses RAG Only:**
+```
+⚡ "What is RSI indicator?"
+   → Historical technical knowledge
+
+⚡ "Explain moving averages"
+   → Technical analysis concepts
+
+⚡ "How do I analyze price action?"
+   → Trading methodology from knowledge base
+```
+
+### Features
+
+✅ **Automatic** - No configuration needed, works out of the box
+✅ **Smart** - Only searches when query needs current information
+✅ **Privacy-Focused** - Uses DuckDuckGo (no tracking)
+✅ **Free** - No API costs or subscriptions
+✅ **Fast** - Results in 2-3 seconds
+✅ **Comprehensive** - Combines web + RAG knowledge
+✅ **Seamless** - Works in chat UI and API endpoints
+
+### Web Search Capabilities
+
+1. **General Web Search** - Any topic via DuckDuckGo
+2. **Trading News** - Symbol-specific news (XAUUSD, EURUSD, etc.)
+3. **Economic Calendar** - Today's important events
+4. **Market Sentiment** - Current market psychology
+5. **Market Overview** - General market conditions
+6. **Technical Analysis News** - Analyst forecasts and predictions
+
+### Technical Details
+
+- **Provider**: DuckDuckGo (free, privacy-focused)
+- **Integration**: Automatic via keyword detection
+- **Latency**: 2-3 seconds for web searches
+- **Fallback**: If web search fails, uses RAG knowledge
+- **Logging**: Console shows 🌐📰📅📊🌍🔍 indicators when active
 
 ---
 
@@ -145,8 +258,15 @@ python3 -m uvicorn main:app --host 0.0.0.0 --port 8080 --reload
 
 1. **Upload MT5 Data**: Use `/upload` endpoint or web interface
 2. **Process Data**: System automatically converts and analyzes
-3. **View Analysis**: Check web UI for AI-powered recommendations
-4. **Start Live Trading**: Run `./start_live_trading.sh`
+3. **Try Web Search**: Ask "What's the latest gold news?" in chat UI
+4. **View Analysis**: Check web UI for AI-powered recommendations with real-time data
+5. **Start Live Trading**: Run `./start_live_trading.sh`
+
+**Test Web Search:**
+```
+Open chat UI → Ask "What's the latest gold news?"
+Watch console for: 🌐 Web search triggered - fetching real-time information
+```
 
 ---
 
@@ -339,6 +459,106 @@ Content-Type: application/json
 }
 
 Response: Streaming Server-Sent Events
+```
+
+**Note**: Chat endpoints now automatically include web search when needed! See [Web Search](#-web-search--internet-access) section for details.
+
+### Web Search & News Endpoints
+
+#### General Web Search
+
+```bash
+GET /api/web/search?query=gold+forecast&max_results=5
+
+Response:
+{
+  "success": true,
+  "query": "gold forecast",
+  "results": "🔍 Web Search Results...",
+  "timestamp": "2025-10-31T12:00:00"
+}
+```
+
+#### News Search
+
+```bash
+GET /api/news/search?query=XAUUSD+trading&max_results=5
+
+Response:
+{
+  "success": true,
+  "query": "XAUUSD trading",
+  "results": "📰 Latest News...",
+  "timestamp": "2025-10-31T12:00:00"
+}
+```
+
+#### Symbol-Specific News
+
+```bash
+GET /api/news/symbol/XAUUSD
+
+Response:
+{
+  "success": true,
+  "symbol": "XAUUSD",
+  "news": "📰 Latest News for XAUUSD...",
+  "timestamp": "2025-10-31T12:00:00"
+}
+```
+
+#### Market Sentiment
+
+```bash
+GET /api/news/market-sentiment/XAUUSD
+
+Response:
+{
+  "success": true,
+  "symbol": "XAUUSD",
+  "sentiment": "📊 Market sentiment analysis...",
+  "timestamp": "2025-10-31T12:00:00"
+}
+```
+
+#### Economic Calendar
+
+```bash
+GET /api/news/economic-calendar
+
+Response:
+{
+  "success": true,
+  "calendar": "📅 Today's economic events...",
+  "timestamp": "2025-10-31T12:00:00"
+}
+```
+
+#### Market Overview
+
+```bash
+GET /api/news/market-overview
+
+Response:
+{
+  "success": true,
+  "overview": "🌍 Market overview...",
+  "timestamp": "2025-10-31T12:00:00"
+}
+```
+
+#### Technical Analysis News
+
+```bash
+GET /api/news/technical-analysis/XAUUSD
+
+Response:
+{
+  "success": true,
+  "symbol": "XAUUSD",
+  "analysis": "📈 Technical analysis forecasts...",
+  "timestamp": "2025-10-31T12:00:00"
+}
 ```
 
 ### Knowledge Management
