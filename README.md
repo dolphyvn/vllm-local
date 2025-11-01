@@ -2075,7 +2075,7 @@ async def find_matching_patterns(
   - ✅ Load and validate live CSV data
   - ✅ Calculate 50+ technical indicators
   - ✅ Detect current pattern/setup
-  - ⏳ Query historical RAG patterns (Phase 2)
+  - ✅ Query historical RAG patterns (Phase 2)
   - ✅ Generate complete analysis
 
 - [x] `scripts/trade_recommendation_engine.py` (598 lines)
@@ -2098,6 +2098,12 @@ async def find_matching_patterns(
   - ✅ Add trade query detection to `/chat` endpoint
   - ✅ Add trade query detection to `/chat/stream` endpoint
   - ✅ Add 3 new API endpoints for live analysis
+
+- [x] Timeout Issues Resolution (Nov 1, 2025)
+  - ✅ Increase streaming chat timeout: 300s → 600s
+  - ✅ Increase regular chat timeout: 120s → 300s
+  - ✅ Add AbortController with 10-minute frontend timeout
+  - ✅ Enhanced error handling for large models >8B
 
 - [ ] `memory.py` (UPDATE if needed)
   - Add support for `live_analysis` collection
