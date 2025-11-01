@@ -5,6 +5,7 @@
 **Status:** Production-Ready ✅
 **New**: 🔧 Phase 4 Complete - Main.py Integration implemented (4,073 lines)!
 **Latest**: 🌐 Phase 1+2+3+4 Complete - Full Live Trading System with API Endpoints
+**Fixed**: ⏱️ Large Model Timeout Issues - Enhanced timeout handling for models >8B
 
 ---
 
@@ -1200,7 +1201,32 @@ python scripts/live_data_feeder.py --source data/XAUUSD_PERIOD_M15_0.csv
 python scripts/live_trading_analyzer.py --data data/live/XAUUSD_M15_LIVE.csv
 ```
 
-#### 5. Port Already in Use
+#### 5. Large Model Timeout Issues
+
+**Problem:** "Failed to connect to the server" when using models >8B parameters
+
+**Solution:** Enhanced timeout handling (implemented Nov 1, 2025):
+
+```bash
+# Backend timeouts increased automatically:
+# - Streaming chat: 300s → 600s
+# - Regular chat: 120s → 300s
+
+# Frontend includes 10-minute timeout with AbortController
+# Users see clear timeout message instead of generic connection error
+```
+
+**Manual timeout configuration (if needed):**
+```bash
+# Set custom timeouts
+export STREAMING_TIMEOUT=600  # 10 minutes
+export REGULAR_TIMEOUT=300    # 5 minutes
+
+# Restart server
+./start_server.sh
+```
+
+#### 6. Port Already in Use
 
 ```bash
 # Find process using port 8080
