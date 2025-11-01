@@ -378,15 +378,17 @@ Summary: {analysis_data.get('summary', 'No summary available')}
         try:
             self._ensure_initialized()
 
-            # Build where clause
+            # Build base where clause
             where_clause = {
                 "analysis_type": "live",
-                "confidence": {"$gte": min_confidence},
                 "trade_direction": {"$ne": "HOLD"}
             }
 
             if symbol:
                 where_clause["symbol"] = symbol
+
+            # Note: ChromaDB doesn't support mixed operators in single query well
+            # We'll filter by confidence after getting results
 
             # Query for high confidence setups
             results = self.collection.query(
@@ -398,14 +400,19 @@ Summary: {analysis_data.get('summary', 'No summary available')}
             if not results['ids'][0]:
                 return []
 
-            # Format results
+            # Format results and filter by confidence
             setups = []
             for i in range(len(results['ids'][0])):
-                setups.append({
-                    "document_id": results['ids'][0][i],
-                    "document": results['documents'][0][i],
-                    "metadata": results['metadatas'][0][i]
-                })
+                metadata = results['metadatas'][0][i]
+                confidence = metadata.get('confidence', 0)
+
+                # Only include results meeting confidence threshold
+                if confidence >= min_confidence:
+                    setups.append({
+                        "document_id": results['ids'][0][i],
+                        "document": results['documents'][0][i],
+                        "metadata": metadata
+                    })
 
             # Sort by confidence (highest first)
             setups.sort(key=lambda x: x['metadata']['confidence'], reverse=True)
