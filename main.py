@@ -731,6 +731,7 @@ class ChatRequest(BaseModel):
     memory_context: int = 3
     stream: bool = False
     collections: Optional[List[str]] = None  # Collections to query: ["financial_memory", "trading_patterns", "live_analysis"]
+    timeframe: Optional[str] = None  # Trading timeframe for live analysis
 
 class StreamChatRequest(BaseModel):
     message: str

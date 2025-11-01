@@ -268,14 +268,19 @@ Summary: {analysis_data.get('summary', 'No summary available')}
             self._ensure_initialized()
 
             # Query for latest analysis
+            where_clause = {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "analysis_type": "live"
+            }
+
+            # Only add confidence filter if min_confidence > 0
+            if min_confidence > 0:
+                where_clause["confidence"] = {"$gte": min_confidence}
+
             results = self.collection.query(
                 query_texts=[f"Latest analysis for {symbol} {timeframe}"],
-                where={
-                    "symbol": symbol,
-                    "timeframe": timeframe,
-                    "analysis_type": "live",
-                    "confidence": {"$gte": min_confidence}
-                },
+                where=where_clause,
                 n_results=1
             )
 
