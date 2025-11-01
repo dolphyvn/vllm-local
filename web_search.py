@@ -93,6 +93,9 @@ class WebSearchTool:
 
         except Exception as e:
             logger.error(f"News search error: {e}")
+            # Handle rate limiting gracefully
+            if "202 Ratelimit" in str(e) or "rate limit" in str(e).lower():
+                return "🌐 Web search temporarily unavailable due to rate limiting. Please try again in a few moments."
             return f"News search error: {str(e)}"
 
     def get_url_content(self, url: str, max_length: int = 5000) -> str:
