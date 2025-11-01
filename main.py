@@ -854,7 +854,7 @@ class OllamaClient:
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, headers=self.headers, timeout=120) as response:
+                async with session.post(url, json=payload, headers=self.headers, timeout=300) as response:
                     response.raise_for_status()
                     result = await response.json()
                     return result.get("message", {}).get("content", "")
@@ -900,7 +900,7 @@ class OllamaClient:
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, headers=self.headers, timeout=300) as response:
+                async with session.post(url, json=payload, headers=self.headers, timeout=600) as response:
                     response.raise_for_status()
 
                     async for line in response.content:

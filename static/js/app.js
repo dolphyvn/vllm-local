@@ -374,11 +374,19 @@ class FinancialAssistantApp {
                 requestBody.files = uploadedFiles;
             }
 
+            // Create AbortController for timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 600000); // 10 minutes timeout
+
             const response = await fetch(`${this.apiBaseUrl}/chat/stream`, {
                 method: 'POST',
                 headers: headers,
-                body: JSON.stringify(requestBody)
+                body: JSON.stringify(requestBody),
+                signal: controller.signal
             });
+
+            // Clear timeout if request succeeds
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
@@ -451,6 +459,13 @@ class FinancialAssistantApp {
         } catch (error) {
             this.isTyping = false;
             console.error('Streaming API error:', error);
+
+            // Check for specific timeout error
+            if (error.name === 'AbortError' || error.message.includes('The user aborted a request')) {
+                // Show timeout message to user
+                this.showErrorMessage('Request timeout. Large models may take longer to respond. Please try again or use a smaller model.');
+                return;
+            }
 
             // Fall back to non-streaming API
             this.sendMessageFallback(message);
@@ -1052,6 +1067,10 @@ class FinancialAssistantApp {
         setTimeout(() => {
             toast.classList.remove('show');
         }, 3000);
+    }
+
+    showErrorMessage(message) {
+        this.addMessage('system', message, 'error');
     }
 
     async apiCall(endpoint, data = null, method = 'POST') {
