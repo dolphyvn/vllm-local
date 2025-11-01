@@ -1,0 +1,91 @@
+{
+  "symbol": "XAUUSD",
+  "timeframe": "M15",
+  "timestamp": "2025-11-02T09:45:00",
+  "current_price": 2138.3,
+  "pattern": {
+    "name": "uptrend_continuation",
+    "type": "continuation",
+    "direction": "bullish",
+    "quality": 0.7,
+    "confidence": 70
+  },
+  "context": {
+    "trend": "strong_bullish",
+    "rsi_state": "oversold",
+    "volume_state": "normal",
+    "session": "london",
+    "current_price": 2138.3,
+    "price_position": {
+      "distance_to_resistance": 0.25,
+      "distance_to_support": 16.300000000000182
+    },
+    "levels": {
+      "support": [
+        2122.0,
+        2121.2342723470847,
+        2069.421031918381
+      ],
+      "resistance": [
+        2138.55,
+        2140.165727652915
+      ]
+    }
+  },
+  "indicators": {
+    "momentum": {
+      "rsi": 0.0,
+      "macd": 5.623753028385636,
+      "macd_signal": 5.633569255474198,
+      "stoch_k": 97.87234042553192,
+      "stoch_d": 97.87234042553192
+    },
+    "trend": {
+      "ema_9": 2135.099780994148,
+      "ema_20": 2130.6912168080275,
+      "ema_50": 2118.565527530703,
+      "sma_20": 2130.7,
+      "sma_50": 2118.68
+    },
+    "volatility": {
+      "atr": 1.3500000000000065,
+      "bb_upper": 2140.165727652915,
+      "bb_middle": 2130.7,
+      "bb_lower": 2121.2342723470847
+    },
+    "volume": {
+      "volume_ratio": 0.9474292316580012,
+      "vwap": 2059.6070936598576
+    }
+  },
+  "market_metrics": {
+    "price_change_24h_pct": 3.735506719060787,
+    "volatility_20d": 8.346416108769213e-05,
+    "volume_surge": 0.9474292316580012
+  },
+  "recommendation": {
+    "direction": "HOLD",
+    "confidence": 59.5,
+    "entry_price": 2131.09622,
+    "stop_loss": 2128.39622,
+    "take_profit": 2136.49622,
+    "risk_reward_ratio": 2.0,
+    "risk_pct": 0.13,
+    "reward_pct": 0.25,
+    "reasoning": "PATTERN ANALYSIS: Uptrend Continuation pattern detected (70% confidence, 70% quality) | MARKET CONTEXT: Price currently at 2138.30, below resistance, ATR at 1.35 | ENTRY STRATEGY: Buy the dip at support level 2130.69 in uptrend | RISK MANAGEMENT: Stop below nearest support at 2130.69 | Take profit at 2.0:1 R:R ratio | Risk: 0.13%, Reward: 0.25%, R:R = 2.0:1 | CONFIDENCE BREAKDOWN: Pattern Quality 21pts, Historical Success 18pts, Risk/Reward 14pts, Market Structure 5pts, Volume Confirmation 2pts | VOLUME ANALYSIS: Current volume at 0.9x average | RSI STATUS: 0 (oversold)",
+    "strength": "Weak",
+    "entry_reason": "Buy the dip at support level 2130.69 in uptrend",
+    "stop_loss_reason": "Stop below nearest support at 2130.69",
+    "take_profit_reason": "Take profit at 2.0:1 R:R ratio",
+    "confidence_breakdown": {
+      "pattern_quality": 21.0,
+      "pattern_confidence": 17.5,
+      "risk_reward": 14,
+      "market_structure": 5,
+      "volume_confirmation": 2
+    }
+  },
+  "summary": "XAUUSD M15 Analysis | Price: 2138.30 (+3.74%) | Pattern: Uptrend Continuation (70% confidence) | Trend: Strong Bullish | RSI: 0 (oversold) | Volume: 0.9x average (normal) | Session: London | ATR: 1.35 | Volatility: 0.00%",
+  "data_points": 192,
+  "analysis_time": "2025-11-01T10:30:49.314613"
+}

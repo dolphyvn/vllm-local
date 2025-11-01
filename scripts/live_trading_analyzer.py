@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-Live Trading Analyzer - Phase 1 Implementation
+Live Trading Analyzer - Phase 3 Implementation
 Analyzes latest market data and generates trade recommendations
 
 Features:
 - Multi-encoding CSV support
 - Technical indicators calculation (matching mt5_to_structured_json.py)
 - Current pattern detection
+- Advanced trade recommendation generation (using trade_recommendation_engine.py)
+- ChromaDB storage integration (using chroma_live_analyzer.py)
 - Analysis summary generation
 - JSON output for integration
 
@@ -14,7 +16,8 @@ Usage:
     python scripts/live_trading_analyzer.py \
         --input data/XAUUSD_M15_200.csv \
         --symbol XAUUSD --timeframe M15 \
-        --output data/live_analysis/XAUUSD_M15_analysis.json
+        --output data/live_analysis/XAUUSD_M15_analysis.json \
+        --add-to-rag
 """
 
 import pandas as pd
@@ -36,6 +39,22 @@ class LiveTradingAnalyzer:
         self.timeframe = timeframe
         self.df: Optional[pd.DataFrame] = None
         self.analysis_result: Dict[str, Any] = {}
+
+        # Initialize trade recommendation engine (Phase 2)
+        try:
+            import sys
+            import os
+            sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+            from trade_recommendation_engine import TradeRecommendationEngine, PatternInfo
+            self.trade_engine = TradeRecommendationEngine()
+            self.PatternInfo = PatternInfo
+        except ImportError as e:
+            print(f"⚠️  Trade recommendation engine not available - using basic recommendations ({e})")
+            self.trade_engine = None
+            self.PatternInfo = None
+
+        # Initialize ChromaDB analyzer (Phase 3)
+        self.chroma_analyzer = None
 
     def load_csv(self, csv_path: str) -> bool:
         """
@@ -489,8 +508,11 @@ class LiveTradingAnalyzer:
 
         summary = " | ".join(summary_parts)
 
-        # Generate trading recommendation (basic)
-        recommendation = self._generate_basic_recommendation(pattern, context, last)
+        # Generate trading recommendation (advanced if available)
+        if self.trade_engine and self.PatternInfo:
+            recommendation = self._generate_advanced_recommendation(pattern, context, last)
+        else:
+            recommendation = self._generate_basic_recommendation(pattern, context, last)
 
         analysis = {
             "symbol": self.symbol,
@@ -608,6 +630,73 @@ class LiveTradingAnalyzer:
 
         return recommendation
 
+    def _generate_advanced_recommendation(self, pattern: Dict, context: Dict, last_candle: pd.Series) -> Dict[str, Any]:
+        """Generate advanced trade recommendation using trade recommendation engine"""
+        print(f"🎯 Using advanced trade recommendation engine...")
+
+        try:
+            # Create PatternInfo object
+            pattern_info = self.PatternInfo(
+                name=pattern['name'],
+                type=pattern['type'],
+                direction=pattern['direction'],
+                quality=pattern['quality'],
+                confidence=pattern['confidence']
+            )
+
+            # Generate trade setup using the advanced engine
+            trade_setup = self.trade_engine.generate_trade_setup(
+                df=self.df,
+                pattern=pattern_info,
+                symbol=self.symbol,
+                timeframe=self.timeframe
+            )
+
+            # Convert to the expected format
+            return {
+                "direction": trade_setup.get('direction', 'HOLD'),
+                "confidence": trade_setup.get('confidence', 50),
+                "entry_price": trade_setup.get('entry_price', last_candle['close']),
+                "stop_loss": trade_setup.get('stop_loss', last_candle['close']),
+                "take_profit": trade_setup.get('take_profit', last_candle['close']),
+                "risk_reward_ratio": trade_setup.get('risk_reward_ratio', 1.5),
+                "risk_pct": trade_setup.get('risk_pct', 1.0),
+                "reward_pct": trade_setup.get('reward_pct', 1.5),
+                "reasoning": trade_setup.get('reasoning', 'Advanced recommendation'),
+                "strength": trade_setup.get('strength', 'Moderate'),
+                "entry_reason": trade_setup.get('entry_reason', 'Pattern-based entry'),
+                "stop_loss_reason": trade_setup.get('stop_loss_reason', 'Risk management'),
+                "take_profit_reason": trade_setup.get('take_profit_reason', 'R:R based target'),
+                "confidence_breakdown": trade_setup.get('confidence_breakdown', {})
+            }
+
+        except Exception as e:
+            print(f"⚠️  Advanced recommendation failed: {e}")
+            print(f"   Falling back to basic recommendation...")
+            return self._generate_basic_recommendation(pattern, context, last_candle)
+
+    def store_in_chromadb(self, analysis_data: Dict[str, Any]) -> bool:
+        """Store analysis in ChromaDB if --add-to-rag flag is used"""
+        if not self.chroma_analyzer:
+            try:
+                import sys
+                import os
+                sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+                from chroma_live_analyzer import ChromaLiveAnalyzer
+                self.chroma_analyzer = ChromaLiveAnalyzer()
+            except ImportError as e:
+                print(f"⚠️  ChromaDB not available - skipping storage ({e})")
+                return False
+
+        try:
+            success = self.chroma_analyzer.store_live_analysis(analysis_data)
+            if success:
+                print(f"✅ Analysis stored in ChromaDB 'live_analysis' collection")
+            return success
+        except Exception as e:
+            print(f"❌ Failed to store in ChromaDB: {e}")
+            return False
+
     def save_json(self, output_path: str, data: Dict[str, Any]) -> bool:
         """Save analysis to JSON file"""
         print(f"💾 Saving analysis to: {output_path}")
@@ -674,7 +763,7 @@ class LiveTradingAnalyzer:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Live Trading Analyzer - Phase 1',
+        description='Live Trading Analyzer - Phase 3',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -684,11 +773,18 @@ Examples:
       --symbol XAUUSD --timeframe M15 \\
       --output data/live_analysis/XAUUSD_M15_analysis.json
 
-  # Analyze BTCUSD H1 data
+  # Analyze and store in ChromaDB
+  python scripts/live_trading_analyzer.py \\
+      --input data/XAUUSD_M15_200.csv \\
+      --symbol XAUUSD --timeframe M15 \\
+      --add-to-rag
+
+  # Analyze BTCUSD H1 data with full features
   python scripts/live_trading_analyzer.py \\
       --input data/BTCUSD_H1_200.csv \\
       --symbol BTCUSD --timeframe H1 \\
-      --output data/live_analysis/BTCUSD_H1_analysis.json
+      --output data/live_analysis/BTCUSD_H1_analysis.json \\
+      --add-to-rag
         """
     )
 
@@ -696,6 +792,7 @@ Examples:
     parser.add_argument('--symbol', default='XAUUSD', help='Trading symbol')
     parser.add_argument('--timeframe', default='M15', help='Timeframe')
     parser.add_argument('--output', help='Output JSON file (optional)')
+    parser.add_argument('--add-to-rag', action='store_true', help='Store analysis in ChromaDB')
 
     args = parser.parse_args()
 
@@ -724,6 +821,16 @@ Examples:
         default_output = f"data/live_analysis/{args.symbol}_{args.timeframe}_analysis.json"
         if analyzer.save_json(default_output, result):
             print(f"\n💾 Analysis saved to: {default_output}")
+
+    # Store in ChromaDB if requested
+    if args.add_to_rag:
+        print(f"\n📊 Storing analysis in ChromaDB...")
+        if analyzer.store_in_chromadb(result):
+            print(f"✅ Analysis stored in ChromaDB 'live_analysis' collection")
+            print(f"   You can query it later with:")
+            print(f"   python scripts/chroma_live_analyzer.py")
+        else:
+            print(f"❌ Failed to store in ChromaDB")
 
     return 0
 
