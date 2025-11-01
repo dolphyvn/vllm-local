@@ -730,12 +730,14 @@ class ChatRequest(BaseModel):
     model: str = config.get("default_model", "phi3")
     memory_context: int = 3
     stream: bool = False
+    collections: Optional[List[str]] = None  # Collections to query: ["financial_memory", "trading_patterns", "live_analysis"]
 
 class StreamChatRequest(BaseModel):
     message: str
     model: str = config.get("default_model", "phi3")
     memory_context: int = 3
     files: Optional[List[Dict[str, Any]]] = None
+    collections: Optional[List[str]] = None  # Collections to query
 
 class MemorizeRequest(BaseModel):
     key: str
@@ -1227,8 +1229,14 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 logger.warning(f"Web search failed, continuing with RAG only: {e}")
                 web_context = ""
 
-        # Enhanced RAG context retrieval
-        context_data = rag_enhancer.enhance_query_with_rag(request.message, max_context=request.memory_context)
+        # Enhanced RAG context retrieval with collection selection
+        collections = request.collections if request.collections else ["financial_memory"]
+        logger.info(f"Querying collections: {collections}")
+        context_data = rag_enhancer.enhance_query_with_rag(
+            request.message,
+            max_context=request.memory_context,
+            collections=collections
+        )
 
         # Check if this is a trade query (Phase 4)
         if is_trade_query(request.message):
@@ -1371,8 +1379,14 @@ async def chat_stream_endpoint(request: StreamChatRequest, http_request: Request
                     logger.warning(f"Web search failed in streaming mode: {e}")
                     web_context = ""
 
-            # Enhanced RAG context retrieval
-            context_data = rag_enhancer.enhance_query_with_rag(request.message, max_context=request.memory_context)
+            # Enhanced RAG context retrieval with collection selection
+            collections = request.collections if request.collections else ["financial_memory"]
+            logger.info(f"[Streaming] Querying collections: {collections}")
+            context_data = rag_enhancer.enhance_query_with_rag(
+                request.message,
+                max_context=request.memory_context,
+                collections=collections
+            )
 
             # Add file information to context if files are provided
             if request.files:
@@ -3372,12 +3386,29 @@ async def get_knowledge_stats(request: Request):
 async def query_endpoint(request: Request, query_request: Dict[str, Any]):
     """
     Enhanced query endpoint that supports trading analysis with LLM integration
+
+    Args:
+        query_request: Dictionary with:
+            - query (str): The question/query text
+            - model (str, optional): LLM model to use (default: gemma3:1b)
+            - max_context (int, optional): Number of RAG context items (default: 5)
+
+    Example:
+        {
+            "query": "Give me best trade setup for XAUUSD",
+            "model": "llama3.1:8b",
+            "max_context": 5
+        }
     """
     try:
         logger.info(f"Received query request: {str(query_request)[:100]}...")
 
         # Get the raw query from the request body
         query_text = query_request.get("query", "")
+
+        # Get model selection (default: gemma3:1b)
+        model = query_request.get("model", "gemma3:1b")
+        logger.info(f"Using LLM model: {model}")
 
         # Enhance query with RAG context
         context_data = rag_enhancer.enhance_query_with_rag(query_text, max_context=query_request.get("max_context", 5))
@@ -3387,6 +3418,7 @@ async def query_endpoint(request: Request, query_request: Dict[str, Any]):
 
         result = {
             "query": query_text,
+            "model_used": model,
             "context": context_data,
             "is_trading_query": is_trading_query
         }
@@ -3394,7 +3426,7 @@ async def query_endpoint(request: Request, query_request: Dict[str, Any]):
         # If trading query, get LLM analysis
         if is_trading_query and _is_ollama_available():
             try:
-                llm_analysis = await get_llm_trading_analysis(query_text, context_data)
+                llm_analysis = await get_llm_trading_analysis(query_text, context_data, model=model)
                 result["llm_analysis"] = llm_analysis
                 result["enhanced_recommendation"] = generate_enhanced_recommendation_from_analysis(context_data, llm_analysis)
             except Exception as e:

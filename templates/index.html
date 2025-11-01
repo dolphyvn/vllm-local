@@ -193,6 +193,35 @@
             <div class="input-container">
                 <div class="input-wrapper">
                     <div class="input-content">
+                        <!-- Collection Selector -->
+                        <div id="collectionSelector" style="margin-bottom: 8px; padding: 8px; background: var(--bg-secondary); border-radius: 6px;">
+                            <div style="margin-bottom: 6px; font-weight: 500; display: flex; align-items: center; gap: 6px; font-size: 0.9em;">
+                                <i class="fas fa-database"></i>
+                                <span>RAG Collections</span>
+                                <button id="toggleCollections" class="btn btn-sm" style="margin-left: auto; padding: 2px 6px; font-size: 0.8em;" onclick="toggleCollectionVisibility()">
+                                    <i class="fas fa-chevron-up"></i>
+                                </button>
+                            </div>
+                            <div id="collectionOptions" style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 0.85em;">
+                                <label class="collection-checkbox" style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                                    <input type="checkbox" name="collections" value="financial_memory" checked>
+                                    <span>💬 Chat Memory</span>
+                                </label>
+                                <label class="collection-checkbox" style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                                    <input type="checkbox" name="collections" value="trading_patterns">
+                                    <span>📊 Trading Patterns</span>
+                                </label>
+                                <label class="collection-checkbox" style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                                    <input type="checkbox" name="collections" value="live_analysis">
+                                    <span>📈 Live Analysis</span>
+                                </label>
+                                <label class="collection-checkbox" style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                                    <input type="checkbox" id="selectAllCollections" onchange="toggleAllCollections()">
+                                    <span style="font-weight: 500;">✓ Select All</span>
+                                </label>
+                            </div>
+                        </div>
+
                         <!-- File Selection for Live Analysis -->
                         <div id="fileSelectionArea" style="display: none; margin-bottom: 8px;">
                             <select id="fileSelect" class="form-control" style="width: 100%; margin-bottom: 8px;">

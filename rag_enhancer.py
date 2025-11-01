@@ -206,22 +206,56 @@ class RAGEnhancer:
             logger.error(f"Failed to store correction as lesson: {e}")
             return False
 
-    def enhance_query_with_rag(self, query: str, max_context: int = 5) -> Dict[str, Any]:
+    def enhance_query_with_rag(self, query: str, max_context: int = 5, collections: list = None) -> Dict[str, Any]:
         """
-        Enhanced RAG retrieval with better query processing
+        Enhanced RAG retrieval with better query processing and multi-collection support
 
         Args:
             query: User query
             max_context: Maximum context items to retrieve
+            collections: List of collection names to query (e.g., ["financial_memory", "trading_patterns", "live_analysis"])
+                        If None, defaults to ["financial_memory"]
 
         Returns:
-            Enhanced context dictionary
+            Enhanced context dictionary with results from all specified collections
         """
         try:
-            # Get basic context (now includes enhanced memory retrieval)
-            context = self.memory_manager.get_combined_context(query,
-                                                              memory_context=max_context,
-                                                              lesson_context=max_context)
+            # Default to financial_memory if no collections specified
+            if collections is None:
+                collections = ["financial_memory"]
+
+            logger.info(f"Querying {len(collections)} collection(s): {collections}")
+
+            # Initialize combined context
+            combined_context = {
+                'conversations': [],
+                'lessons': [],
+                'trading_patterns': [],
+                'live_analysis': []
+            }
+
+            # Query each collection
+            for collection_name in collections:
+                if collection_name == "financial_memory":
+                    # Get basic context (conversations and lessons from financial_memory)
+                    context = self.memory_manager.get_combined_context(query,
+                                                                      memory_context=max_context,
+                                                                      lesson_context=max_context)
+                    combined_context['conversations'].extend(context.get('conversations', []))
+                    combined_context['lessons'].extend(context.get('lessons', []))
+
+                elif collection_name == "trading_patterns":
+                    # Query trading patterns collection
+                    patterns = self._query_trading_patterns(query, max_results=max_context)
+                    combined_context['trading_patterns'].extend(patterns)
+
+                elif collection_name == "live_analysis":
+                    # Query live analysis collection
+                    live_data = self._query_live_analysis(query, max_results=max_context)
+                    combined_context['live_analysis'].extend(live_data)
+
+            # Use the original context variable for backward compatibility
+            context = combined_context
 
             # Log what was found
             logger.info(f"Enhanced RAG context: {len(context['conversations'])} memories, {len(context['lessons'])} lessons")
@@ -315,3 +349,79 @@ class RAGEnhancer:
                 related_terms.append(word)
 
         return related_terms[:5]  # Limit to top 5 terms
+
+    def _query_trading_patterns(self, query: str, max_results: int = 5) -> List[str]:
+        """
+        Query the trading_patterns collection
+
+        Args:
+            query: Search query
+            max_results: Maximum number of results
+
+        Returns:
+            List of formatted trading pattern strings
+        """
+        try:
+            import chromadb
+
+            # Initialize ChromaDB client
+            client = chromadb.PersistentClient(path="./chroma_db")
+            collection = client.get_collection(name="trading_patterns")
+
+            # Query the collection
+            results = collection.query(
+                query_texts=[query],
+                n_results=max_results
+            )
+
+            # Format results
+            patterns = []
+            if results and 'documents' in results and results['documents']:
+                for doc_list in results['documents']:
+                    for doc in doc_list:
+                        patterns.append(doc)
+
+            logger.info(f"Found {len(patterns)} trading patterns")
+            return patterns
+
+        except Exception as e:
+            logger.warning(f"Failed to query trading_patterns collection: {e}")
+            return []
+
+    def _query_live_analysis(self, query: str, max_results: int = 5) -> List[str]:
+        """
+        Query the live_analysis collection
+
+        Args:
+            query: Search query
+            max_results: Maximum number of results
+
+        Returns:
+            List of formatted live analysis strings
+        """
+        try:
+            import chromadb
+
+            # Initialize ChromaDB client
+            client = chromadb.PersistentClient(path="./chroma_db")
+            collection = client.get_collection(name="live_analysis")
+
+            # Query the collection
+            results = collection.query(
+                query_texts=[query],
+                n_results=max_results
+            )
+
+            # Format results
+            analyses = []
+            if results and 'documents' in results and results['documents']:
+                for doc_list in results['documents']:
+                    for doc in doc_list:
+                        analyses.append(doc)
+
+            logger.info(f"Found {len(analyses)} live analyses")
+            return analyses
+
+        except Exception as e:
+            logger.warning(f"Failed to query live_analysis collection: {e}")
+            return []

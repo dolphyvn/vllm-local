@@ -359,10 +359,14 @@ class FinancialAssistantApp {
                 headers['Authorization'] = `Bearer ${sessionToken}`;
             }
 
+            // Get selected collections
+            const selectedCollections = this.getSelectedCollections();
+
             const requestBody = {
                 message: message,
                 model: 'phi3',
-                memory_context: 3
+                memory_context: 3,
+                collections: selectedCollections.length > 0 ? selectedCollections : null
             };
 
             // Include uploaded files in the request
@@ -1417,6 +1421,18 @@ class FinancialAssistantApp {
         return uploadedFiles;
     }
 
+    getSelectedCollections() {
+        // Get all checked collection checkboxes
+        const checkboxes = document.querySelectorAll('input[name="collections"]:checked');
+        const collections = [];
+
+        checkboxes.forEach(checkbox => {
+            collections.push(checkbox.value);
+        });
+
+        return collections;
+    }
+
     clearFiles() {
         // Clear attached files
         this.attachedFiles = [];
@@ -1655,3 +1671,28 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 });
+
+// Collection selector functions
+function toggleCollectionVisibility() {
+    const options = document.getElementById('collectionOptions');
+    const toggleBtn = document.getElementById('toggleCollections');
+
+    if (!options || !toggleBtn) return;
+
+    if (options.style.display === 'none') {
+        options.style.display = 'grid';
+        toggleBtn.innerHTML = '<i class="fas fa-chevron-up"></i>';
+    } else {
+        options.style.display = 'none';
+        toggleBtn.innerHTML = '<i class="fas fa-chevron-down"></i>';
+    }
+}
+
+function toggleAllCollections() {
+    const selectAll = document.getElementById('selectAllCollections');
+    const checkboxes = document.querySelectorAll('input[name="collections"]');
+
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = selectAll.checked;
+    });
+}
