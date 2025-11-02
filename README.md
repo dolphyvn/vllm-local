@@ -54,50 +54,181 @@ The **vLLM-Local Trading System** is an enterprise-grade Memory-Augmented RAG (M
 
 ---
 
-## Architecture
+## Current Architecture & Implementation Status
 
-### High-Level Architecture
+### 🏗️ **ACTUAL System Architecture**
 
 ```
 ┌───────────────────────────────────────────────────────────────────┐
-│                      External Data Sources                        │
-│  ┌──────────┐  ┌──────────┐  ┌─────────────┐  ┌──────────────┐  │
-│  │  MT5 EA  │  │ CSV Files│  │ Live Market │  │  Web Upload  │  │
-│  │  Upload  │  │  Import  │  │   Feeder    │  │  Interface   │  │
-│  └──────────┘  └──────────┘  └─────────────┘  └──────────────┘  │
+│                    Web Interface Layer                             │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────────┐ │
+│  │  Chat UI        │  │  File Upload    │  │  Settings Panel │ │
+│  │  - Collection   │  │  - CSV Files    │  │  - Model Switch  │ │
+│  │    Selector     │  │  - Drag & Drop  │  │  - Web Search    │ │
+│  │  - Real-time    │  │  - Auto Process │  │    Toggle        │ │
+│  │    Streaming    │  │                 │  │                  │ │
+│  └─────────────────┘  └─────────────────┘  └──────────────────┘ │
 └───────────────────────────────────────────────────────────────────┘
                                  │
                                  ▼
 ┌───────────────────────────────────────────────────────────────────┐
-│                     Data Processing Layer                         │
-│  • MT5 Format Conversion    • Technical Analysis (50+ indicators) │
-│  • Pattern Detection        • Market Profile Analysis             │
-│  • Session VWAP            • Auction Theory Integration          │
-│  • Narrative Generation    • Risk Assessment                      │
+│                  FastAPI Backend (main.py)                        │
+│  • 22+ API Endpoints       • Session Authentication               │
+│  • Background Tasks       • Streaming Responses                   │
+│  • Multi-Collection RAG   • Model Selection                       │
+│  • Web Search Integration • Error Handling                        │
 └───────────────────────────────────────────────────────────────────┘
                                  │
                                  ▼
 ┌───────────────────────────────────────────────────────────────────┐
-│              🌐 Web Search & Real-Time Data Layer 🌐              │
-│  • DuckDuckGo Integration   • Trading News API                    │
-│  • Economic Calendar        • Market Sentiment Analysis           │
-│  • Real-time Forecasts      • Symbol-Specific News                │
-│  • Automatic Detection      • Privacy-Focused (No Tracking)       │
+│               Live Trading Analysis Scripts                        │
+│  ┌──────────────────────┐  ┌─────────────────────────────────────┐ │
+│  │  live_trading_analyzer.py (487 lines)                         │ │
+│  │  - 50+ Technical Indicators                                    │ │
+│  │  - Pattern Detection                                           │ │
+│  │  - Market Profile Analysis                                    │ │
+│  └──────────────────────┘  ┌─────────────────────────────────────┐ │
+│  │  trade_recommendation_engine.py (598 lines)                   │ │
+│  │  - Entry/SL/TP Calculations                                   │ │
+│  │  - 5-Factor Confidence Scoring                                │ │
+│  │  - Risk/Reward Analysis                                       │ │
+│  └──────────────────────┘  ┌─────────────────────────────────────┐ │
+│  │  chroma_live_analyzer.py (657 lines)                         │ │
+│  │  - ChromaDB Operations                                        │ │
+│  │  - Analysis Storage & Retrieval                               │ │
+│  │  - Historical Pattern Matching                                │ │
+│  └──────────────────────┘                                      │ │
 └───────────────────────────────────────────────────────────────────┘
                                  │
                                  ▼
 ┌───────────────────────────────────────────────────────────────────┐
-│                    Vector Database Layer                          │
-│  • ChromaDB Storage         • Semantic Search                     │
-│  • Pattern Storage          • Lesson Management                   │
-│  • Historical Outcomes      • Correction Tracking                 │
+│                 Multi-Collection ChromaDB RAG                      │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────────┐ │
+│  │  financial_     │  │  trading_       │  │  live_analysis   │ │
+│  │  memory         │  │  patterns       │  │                  │ │
+│  │  - Chat History │  │  - Historical    │  │  - Current Setup │ │
+│  │  - Lessons       │  │    Patterns     │  │  - Trade Recs   │ │
+│  │  - Personal Info│  │  - Pattern Out- │  │  - Analysis      │ │
+│  │                 │  │    comes         │  │    Results       │ │
+│  └─────────────────┘  └─────────────────┘  └──────────────────┘ │
 └───────────────────────────────────────────────────────────────────┘
                                  │
                                  ▼
 ┌───────────────────────────────────────────────────────────────────┐
-│                   Application Layer (FastAPI)                     │
-│  • Chat Interface          • Memory Management                    │
-│  • File Uploads            • Authentication                       │
+│                   Web Search Integration                            │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────────┐ │
+│  │  web_search.py  │  │  DuckDuckGo API │  │  Real-time Data  │ │
+│  │  - News Search  │  │  - Privacy      │  │  - Market News   │ │
+│  │  - Content Fetch│  │  - Rate Limits  │  │  - Sentiment     │ │
+│  │  - Error Handling│  │  - Free Access  │  │  - Calendar      │ │
+│  └─────────────────┘  └─────────────────┘  └──────────────────┘ │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+### 📁 **Project Structure & File Usage**
+
+```
+vllm-local/
+├── 📄 CORE APPLICATION FILES
+│   ├── main.py                    # FastAPI app (4,073 lines) - Main backend
+│   ├── memory.py                  # ChromaDB operations - Vector database
+│   ├── rag_enhancer.py            # Multi-collection RAG - Context retrieval
+│   ├── web_search.py              # DuckDuckGo integration - Web search
+│   └── config.json                # System configuration - Settings
+│
+├── 🌐 WEB INTERFACE
+│   ├── templates/index.html       # Chat UI - Main web interface
+│   ├── static/css/style.css       # Styling - UI appearance
+│   ├── static/js/app.js           # Frontend logic - Interactive features
+│   └── static/img/                # Icons and images
+│
+├── 🔧 CORE TRADING SCRIPTS
+│   ├── scripts/live_trading_analyzer.py      # Main analysis engine
+│   ├── scripts/trade_recommendation_engine.py # Trade calculations
+│   ├── scripts/chroma_live_analyzer.py       # Database operations
+│   ├── scripts/technical_analysis_engine.py  # 50+ indicators (991 lines)
+│   └── scripts/mt5_data_processor.py         # CSV format conversion
+│
+├── 📚 KNOWLEDGE MANAGEMENT
+│   ├── scripts/feed_to_rag_direct.py         # Direct RAG feeding
+│   ├── scripts/markdown_to_rag.py            # Document processing
+│   ├── scripts/feed_markdown_to_rag.py       # E-book ingestion
+│   └── scripts/create_sample_data.py         # Sample data generation
+│
+├── ⚙️ CONFIGURATION & DEPLOYMENT
+│   ├── config/live_trading.json   # Live trading settings
+│   ├── requirements.txt            # Python dependencies
+│   ├── start_server.sh             # Production startup script
+│   ├── start_live_trading.sh      # Live trading startup
+│   └── check_status.sh             # System health check
+│
+├── 💾 DATA STORAGE
+│   ├── data/                       # Market data (808 MB)
+│   ├── chroma_db/                  # Vector database (24 MB)
+│   ├── data/live_analysis/         # Analysis results
+│   └── prompts/                    # LLM prompts and templates
+│
+└── 📖 DOCUMENTATION
+    ├── README.md                   # This file
+    ├── WEB_SEARCH_GUIDE.md         # Web search usage guide
+    └── start_server.sh             # Server startup script
+```
+
+### 🔄 **ACTUAL Data Flow & Process Steps**
+
+#### **Step 1: Data Upload & Processing**
+```
+CSV File Upload → /upload endpoint → Background Task →:
+├── scripts/live_trading_analyzer.py (487 lines)
+│   ├── Validates CSV format (8 columns required)
+│   ├── Calculates 50+ technical indicators
+│   ├── Detects chart patterns
+│   ├── Performs Market Profile analysis
+│   └── Generates comprehensive analysis
+├── scripts/trade_recommendation_engine.py (598 lines)
+│   ├── Calculates Entry prices
+│   ├── Determines Stop Loss levels
+│   ├── Sets Take Profit targets
+│   ├── Computes confidence scores (0-100%)
+│   └── Generates detailed reasoning
+└── scripts/chroma_live_analyzer.py (657 lines)
+    ├── Stores analysis in ChromaDB
+    ├── Indexes for semantic search
+    ├── Enables historical pattern matching
+    └── Provides retrieval APIs
+```
+
+#### **Step 2: Knowledge Query & Enhancement**
+```
+User Query → Multi-Collection RAG →:
+├── financial_memory collection
+│   ├── Chat history and conversations
+│   ├── Trading lessons learned
+│   └── Personal trading insights
+├── trading_patterns collection
+│   ├── Historical market patterns
+│   ├── Pattern outcomes and results
+│   └── Recurring setup recognition
+├── live_analysis collection
+│   ├── Current market analysis
+│   ├── Active trade setups
+│   └── Real-time recommendations
+└── Web Search (if keywords detected)
+    ├── DuckDuckGo news search
+    ├── Market sentiment data
+    ├── Economic calendar
+    └── Real-time market information
+```
+
+#### **Step 3: AI-Powered Response Generation**
+```
+Enhanced Context → LLM Processing → Response:
+├── Selected model (gemma3:1b, llama3.1:8b, etc.)
+├── RAG-enhanced prompt with all context
+├── Real-time web data integration
+├── Historical pattern matching
+└── Streaming response delivery
+```
 │  • Streaming Responses     • Real-time Analysis                   │
 │  • Web Search Integration  • Auto Context Enhancement             │
 └───────────────────────────────────────────────────────────────────┘
@@ -227,35 +358,250 @@ Your LLM now has **full internet access** - it can search the web and fetch real
 
 ---
 
-## Quick Start
+## 🚀 **Step-by-Step Usage Guide**
 
-### Prerequisites
-
-- Python 3.12+
-- Ollama (for local LLM)
-- ChromaDB
-- TA-Lib for technical analysis
-
-### Installation
+### **Step 1: Server Setup & Installation**
 
 ```bash
-# Install dependencies
+# 1. Clone and navigate to project
+git clone <repository-url>
+cd vllm-local
+
+# 2. Install Python dependencies
 pip install -r requirements.txt
 
-# Install Ollama models
-ollama pull gemma3:1b
-ollama pull qwen3:14b
+# 3. Install Ollama (if not already installed)
+curl -fsSL https://ollama.ai/install.sh | sh
 
-# Start the application
-python3 -m uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+# 4. Pull preferred models
+ollama pull gemma3:1b          # Fast, lightweight model
+ollama pull llama3.1:8b        # Balanced performance
+ollama pull qwen3:14b          # High accuracy (if resources allow)
+
+# 5. Start the server
+./start_server.sh
+# OR manually:
+python3 -m uvicorn main:app --host 0.0.0.0 --port 8080
 ```
 
-### Access Points
+### **Step 2: Access the Web Interface**
 
-- **Web Interface**: http://localhost:8080
-- **API Documentation**: http://localhost:8080/docs
-- **Upload Status**: http://localhost:8080/upload/status
-- **Health Check**: http://localhost:8080/health
+```bash
+# Main Web Interface
+http://localhost:8080
+
+# API Documentation
+http://localhost:8080/docs
+
+# System Status & Health
+http://localhost:8080/health
+```
+
+**Login Credentials:**
+- Username: `admin`
+- Password: `admin123` (configurable in config.json)
+
+### **Step 3: Upload Market Data**
+
+#### **A. Via Web Interface (Recommended)**
+```bash
+1. Open http://localhost:8080
+2. Click "Upload Files" button
+3. Drag & drop CSV files or click to select
+4. Supported files: MT5 export format
+5. Automatic processing starts immediately
+```
+
+#### **B. Required CSV Format**
+```csv
+timestamp,open,high,low,close,volume,spread,real_volume
+2025-01-01 00:00:00,1100.00,1105.00,1098.00,1103.50,1000,0,500
+2025-01-01 00:15:00,1103.50,1108.00,1101.00,1106.75,1200,0,600
+```
+
+**File Naming Convention:**
+- `{SYMBOL}_PERIOD_{TIMEFRAME}_{CANDLES}.csv`
+- Examples: `XAUUSD_PERIOD_M15_200.csv`, `BTCUSD_PERIOD_H1_500.csv`
+
+#### **C. Upload Multiple Timeframes (Best Results)**
+```bash
+# Upload files for comprehensive analysis:
+✅ XAUUSD_PERIOD_M1_200.csv    (1-minute candles)
+✅ XAUUSD_PERIOD_M5_200.csv    (5-minute candles)
+✅ XAUUSD_PERIOD_M15_200.csv   (15-minute candles)
+✅ XAUUSD_PERIOD_M30_200.csv   (30-minute candles)
+✅ XAUUSD_PERIOD_H1_200.csv    (1-hour candles)
+✅ XAUUSD_PERIOD_H4_200.csv    (4-hour candles)
+```
+
+### **Step 4: Configure System Settings**
+
+#### **A. Model Selection**
+```bash
+1. In chat interface, click model dropdown
+2. Select preferred model:
+   - gemma3:1b - Fast responses, good for quick analysis
+   - llama3.1:8b - Balanced speed and accuracy
+   - qwen3:14b - Highest accuracy, slower responses
+```
+
+#### **B. Web Search Toggle**
+```bash
+1. Click ⚙️ Settings button
+2. Toggle "Web Search" on/off
+3. ON: Includes real-time market data and news
+4. OFF: Uses only stored knowledge base
+```
+
+#### **C. Collection Selection**
+```bash
+1. In chat interface, use checkboxes to select:
+   ☑️ financial_memory - Chat history and lessons
+   ☑️ trading_patterns - Historical patterns
+   ☑️ live_analysis - Current market analysis
+2. Select all for comprehensive responses
+```
+
+### **Step 5: Get Trading Analysis**
+
+#### **A. Web Interface Chat (Easiest)**
+```bash
+# Effective Query Examples:
+✅ "Analyze XAUUSD M15 current setup with entry, SL, TP"
+✅ "What are the high-confidence trade opportunities right now?"
+✅ "Compare BTCUSD across M15, H1, H4 timeframes"
+✅ "Provide risk management plan for current EURUSD conditions"
+✅ "Show me recent support/resistance levels for GBPUSD"
+
+# Real-time Streaming Chat:
+Type your question → Response streams in real-time
+Includes: Technical analysis + Pattern recognition + Historical context
+```
+
+#### **B. Direct Script Usage (Advanced)**
+```bash
+# Run manual analysis if needed:
+python scripts/live_trading_analyzer.py \
+  --input data/XAUUSD_PERIOD_M15_200.csv \
+  --symbol XAUUSD \
+  --timeframe M15 \
+  --add-to-rag
+
+# Generate trade recommendations:
+python scripts/trade_recommendation_engine.py \
+  --input data/XAUUSD_PERIOD_M15_200.csv \
+  --symbol XAUUSD \
+  --timeframe M15 \
+  --min-confidence 70
+
+# Check stored analysis:
+python scripts/chroma_live_analyzer.py --latest XAUUSD M15
+python scripts/chroma_live_analyzer.py --setups --min-confidence 80
+```
+
+#### **C. API Integration (Automation)**
+```bash
+# Upload data via API:
+curl -X POST "http://localhost:8080/api/upload" \
+  -F "files=@XAUUSD_PERIOD_M15_200.csv"
+
+# Query live analysis:
+curl "http://localhost:8080/api/live-analysis/XAUUSD/M15"
+
+# Chat with AI:
+curl -X POST "http://localhost:8080/chat/stream" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Provide detailed trade analysis for XAUUSD",
+    "model": "llama3.1:8b",
+    "collections": ["financial_memory", "live_analysis"]
+  }'
+```
+
+### **Step 6: Daily Trading Workflow**
+
+#### **A. Morning Market Prep (6:00 AM)**
+```bash
+1. Upload latest CSV files from overnight data
+2. Ask: "What are the key trading opportunities for today?"
+3. Review high-confidence setups from AI analysis
+4. Plan trading day based on multi-timeframe analysis
+```
+
+#### **B. Intraday Updates (Every 2-4 Hours)**
+```bash
+1. Upload most recent 200 candles for active symbols
+2. Ask: "Any new setups or changes in current positions?"
+3. Get updated Entry/SL/TP levels if market conditions changed
+4. Verify risk management parameters
+```
+
+#### **C. Trade Confirmation Process**
+```bash
+1. Get initial analysis: "Analyze XAUUSD M15 setup"
+2. Request confirmation: "Should I go long or short on XAUUSD?"
+3. Get specific levels: "Provide entry, stop loss, take profit"
+4. Risk check: "What's the risk/reward ratio for this trade?"
+```
+
+### **Step 7: Monitoring & Troubleshooting**
+
+#### **A. System Health Check**
+```bash
+# Check system status:
+./check_status.sh
+
+# Verify ChromaDB status:
+python scripts/chroma_live_analyzer.py --stats
+
+# Check available models:
+curl "http://localhost:8080/api/available-models"
+```
+
+#### **B. Common Issues & Solutions**
+```bash
+❌ "No analysis found" → Upload recent CSV data (last 200 candles)
+❌ "Low confidence readings" → Update with more recent market data
+❌ "Conflicting signals" → Use multi-timeframe analysis for confirmation
+❌ "Model response too slow" → Switch to smaller model (gemma3:1b)
+❌ "Web search errors" → Toggle web search off in settings
+```
+
+### **Step 8: Advanced Features**
+
+#### **A. Knowledge Base Management**
+```bash
+# Add trading knowledge:
+echo "Key lesson: Always use 1:2 risk/reward ratio" | \
+  curl -X POST "http://localhost:8080/api/lessons/add" \
+  -H "Content-Type: application/json" \
+  -d '{"lesson": "'$(cat)'"}'
+
+# View knowledge statistics:
+curl "http://localhost:8080/api/knowledge/stats"
+```
+
+#### **B. Historical Pattern Learning**
+```bash
+# Process full historical data:
+python scripts/process_pipeline.sh
+
+# This learns from historical patterns and stores outcomes
+# Used for pattern recognition in future analysis
+```
+
+#### **C. Multi-Symbol Analysis**
+```bash
+# Analyze multiple symbols:
+for symbol in XAUUSD BTCUSD EURUSD GBPUSD; do
+  curl -X POST "http://localhost:8080/api/upload" \
+    -F "files=@data/${symbol}_PERIOD_M15_200.csv"
+  echo "Analyzed ${symbol}"
+done
+
+# Compare opportunities:
+"Which symbol offers the best trading opportunity right now?"
+```
 
 ### First Steps
 
@@ -360,6 +706,389 @@ Watch console for: 🌐 Web search triggered - fetching real-time information
 - Automatic re-authentication on 401 errors
 - Configurable session timeout (8 hours default)
 - Secure password hashing
+
+---
+
+## 🔧 **Code Improvement & Modification Guide**
+
+### **Understanding the Codebase for Modifications**
+
+#### **A. Core Application Files to Modify**
+
+**`main.py` (4,073 lines) - FastAPI Backend**
+```python
+# Key sections to modify:
+- Lines 728-734: ChatRequest/StreamChatRequest models (add new fields)
+- Lines 1190-1200: Chat endpoint logic (modify response processing)
+- Lines 1340-1350: Streaming chat logic (enhance streaming features)
+- Lines 3660-3740: API endpoints (add new endpoints)
+- Lines 654-697: FastAPI app configuration (add middleware, etc.)
+
+# Common modifications:
+- Add new API endpoints
+- Modify request/response models
+- Change authentication logic
+- Add new middleware
+- Modify error handling
+```
+
+**`memory.py` - ChromaDB Operations**
+```python
+# Key sections to modify:
+- Line 45-95: ChromaManager class (database operations)
+- Line 150-250: Memory storage and retrieval (enhance RAG logic)
+- Line 300-400: Collection management (add new collections)
+
+# Common modifications:
+- Add new ChromaDB collections
+- Modify RAG retrieval logic
+- Change embedding models
+- Add new storage/retrieval methods
+```
+
+**`rag_enhancer.py` - Multi-Collection RAG**
+```python
+# Key sections to modify:
+- Line 50-150: RAG enhancement logic (modify context building)
+- Line 200-300: Collection querying (change query strategies)
+- Line 350-450: Context formatting (modify prompt building)
+
+# Common modifications:
+- Change RAG retrieval strategies
+- Add new context sources
+- Modify prompt building logic
+- Change collection selection logic
+```
+
+#### **B. Trading Analysis Scripts to Enhance**
+
+**`scripts/live_trading_analyzer.py` (487 lines)**
+```python
+# Key functions to modify:
+- Line 100-200: calculate_indicators() (add new technical indicators)
+- Line 250-350: detect_patterns() (add new pattern recognition)
+- Line 400-500: analyze_market_structure() (enhance structure analysis)
+
+# Common enhancements:
+- Add new technical indicators
+- Improve pattern detection algorithms
+- Add new analysis methods
+- Modify confidence scoring
+```
+
+**`scripts/trade_recommendation_engine.py` (598 lines)**
+```python
+# Key functions to modify:
+- Line 150-250: calculate_entry_price() (modify entry logic)
+- Line 300-400: calculate_stop_loss() (enhance SL calculation)
+- Line 450-550: calculate_take_profit() (improve TP logic)
+- Line 600-700: calculate_confidence() (modify scoring algorithm)
+
+# Common enhancements:
+- Add new entry/SL/TP strategies
+- Improve risk management calculations
+- Modify confidence scoring factors
+- Add new trade validation logic
+```
+
+**`scripts/technical_analysis_engine.py` (991 lines)**
+```python
+# Key sections to modify:
+- Line 100-500: Individual indicator calculations (add new indicators)
+- Line 600-800: Market profile analysis (enhance VWAP calculations)
+- Line 900-950: Pattern recognition logic (add new patterns)
+
+# Common enhancements:
+- Add new technical indicators
+- Improve calculation efficiency
+- Add new pattern types
+- Modify analysis parameters
+```
+
+#### **C. Web Interface Files to Customize**
+
+**`static/js/app.js` - Frontend Logic**
+```javascript
+// Key sections to modify:
+- Line 300-400: sendMessage() (modify chat behavior)
+- Line 500-600: showSettings() (add new settings)
+- Line 700-800: file upload logic (enhance upload features)
+- Line 900-1000: API calls (modify API integration)
+
+// Common modifications:
+- Add new UI components
+- Modify chat behavior
+- Add new settings options
+- Change API integration
+```
+
+**`templates/index.html` - Web Interface**
+```html
+<!-- Key sections to modify:
+- Lines 50-100: Header section (add new navigation)
+- Lines 150-250: Chat interface (modify chat layout)
+- Lines 300-400: File upload section (enhance upload UI)
+- Lines 450-550: Settings panel (add new settings)
+
+<!-- Common modifications:
+- Add new UI elements
+- Modify layout and styling
+- Add new interactive features
+- Change responsive behavior
+```
+
+### **B. Adding New Features**
+
+#### **1. Adding New API Endpoints**
+```python
+# In main.py, add after line 3740:
+
+@app.post("/api/custom-endpoint")
+async def custom_endpoint(
+    data: CustomRequest,
+    request: Request = None
+):
+    """
+    Custom endpoint description
+    """
+    # Check authentication
+    get_current_user(auth_manager, request)
+
+    try:
+        # Your custom logic here
+        result = process_custom_data(data)
+
+        return {
+            "success": True,
+            "data": result
+        }
+    except Exception as e:
+        logger.error(f"Custom endpoint error: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+# Add request model at line 734:
+class CustomRequest(BaseModel):
+    field1: str
+    field2: int = 0
+    optional_field: Optional[str] = None
+```
+
+#### **2. Adding New Technical Indicators**
+```python
+# In scripts/technical_analysis_engine.py, add after line 800:
+
+def calculate_new_indicator(df: pd.DataFrame) -> pd.Series:
+    """
+    Calculate custom technical indicator
+
+    Args:
+        df: DataFrame with OHLCV data
+
+    Returns:
+        Series with indicator values
+    """
+    try:
+        # Your indicator calculation logic
+        indicator_values = df['close'].rolling(window=14).mean()
+
+        return indicator_values
+    except Exception as e:
+        logger.error(f"Error calculating new indicator: {e}")
+        return pd.Series([0] * len(df), index=df.index)
+
+# In live_trading_analyzer.py, add to indicators dict (line ~200):
+indicators['new_indicator'] = calculate_new_indicator(df)
+```
+
+#### **3. Adding New ChromaDB Collections**
+```python
+# In memory.py, add new collection (line ~100):
+
+def create_custom_collection(self):
+    """Create and initialize custom collection"""
+    try:
+        collection_name = "custom_collection"
+
+        # Get or create collection
+        collection = self.client.get_or_create_collection(
+            name=collection_name,
+            metadata={"description": "Custom data collection"}
+        )
+
+        self.collections[collection_name] = collection
+        logger.info(f"✅ Custom collection '{collection_name}' initialized")
+
+        return collection
+    except Exception as e:
+        logger.error(f"❌ Failed to create custom collection: {e}")
+        return None
+
+# In rag_enhancer.py, add to collection list (line ~50):
+available_collections = [
+    "financial_memory",
+    "trading_patterns",
+    "live_analysis",
+    "custom_collection"  # New collection
+]
+```
+
+#### **4. Adding New UI Components**
+```javascript
+// In static/js/app.js, add new settings (line ~1200):
+
+function addCustomSetting() {
+    const settingsSection = `
+        <div class="settings-section">
+            <h4><i class="fas fa-cog"></i> Custom Settings</h4>
+            <div class="setting-item">
+                <label for="customToggle" class="setting-label">
+                    <i class="fas fa-star"></i>
+                    Custom Feature
+                </label>
+                <div class="toggle-switch">
+                    <input type="checkbox" id="customToggle" class="toggle-input">
+                    <label for="customToggle" class="toggle-label"></label>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Insert into settings modal
+    const modalBody = document.querySelector('.modal-body');
+    modalBody.insertAdjacentHTML('beforeend', settingsSection);
+}
+```
+
+### **C. Configuration Changes**
+
+#### **Modifying System Configuration**
+```json
+// In config.json, add new settings:
+{
+  "default_model": "gemma3:1b",
+  "api_settings": {
+    "web_search_enabled": true,
+    "custom_feature_enabled": true,
+    "custom_parameter": 100
+  },
+  "custom_settings": {
+    "new_feature": {
+      "enabled": true,
+      "parameter1": "value1",
+      "parameter2": 42
+    }
+  }
+}
+```
+
+#### **Accessing Configuration in Code**
+```python
+# In any Python file, access config:
+config = load_config()  # Already loaded in main.py
+
+# Get custom settings
+custom_enabled = config.get("custom_settings", {}).get("new_feature", {}).get("enabled", False)
+custom_param = config.get("custom_settings", {}).get("new_feature", {}).get("parameter1", "default")
+```
+
+### **D. Testing & Development Workflow**
+
+#### **1. Development Setup**
+```bash
+# Create development branch
+git checkout -b feature/new-feature
+
+# Start development server with auto-reload
+python3 -m uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+
+# Test changes in real-time
+```
+
+#### **2. Testing Changes**
+```bash
+# Test specific script
+python scripts/live_trading_analyzer.py --input data/test.csv --symbol TEST --timeframe M15
+
+# Test API endpoints
+curl -X POST "http://localhost:8080/api/custom-endpoint" \
+  -H "Content-Type: application/json" \
+  -d '{"field1": "test", "field2": 123}'
+
+# Check logs for errors
+tail -f /var/log/vllm-local.log
+```
+
+#### **3. Deployment Steps**
+```bash
+# Stage changes
+git add .
+
+# Commit with detailed message
+git commit -m "Add new custom feature
+
+- Added new API endpoint
+- Enhanced technical indicators
+- Updated UI with new settings
+- Added configuration options
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+
+# Push changes
+git push origin feature/new-feature
+
+# Create pull request for review
+```
+
+### **E. Common Modification Patterns**
+
+#### **1. Adding New Data Sources**
+```python
+# Create new data processor script
+# scripts/new_data_processor.py
+
+class NewDataProcessor:
+    def __init__(self):
+        self.data_format = "custom"
+
+    def process_data(self, file_path: str) -> dict:
+        """Process new data format"""
+        # Your processing logic
+        return processed_data
+
+    def validate_format(self, file_path: str) -> bool:
+        """Validate new data format"""
+        # Your validation logic
+        return True
+```
+
+#### **2. Extending LLM Integration**
+```python
+# In main.py, modify chat endpoint (line ~1200):
+async def enhanced_chat_processing(request: ChatRequest):
+    """Enhanced chat processing with custom logic"""
+
+    # Add custom context
+    custom_context = get_custom_context(request.message)
+
+    # Modify prompt building
+    enhanced_prompt = build_enhanced_prompt(
+        base_prompt=request.message,
+        custom_context=custom_context,
+        user_preferences=get_user_preferences()
+    )
+
+    # Send to LLM with enhanced prompt
+    response = await llm_client.generate(enhanced_prompt)
+
+    return response
+```
+
+This guide provides the foundation for understanding, modifying, and extending the vLLM-Local Trading System. Each section identifies the exact files and line numbers to modify, making it easy to implement new features or customize existing functionality.
 
 ---
 
