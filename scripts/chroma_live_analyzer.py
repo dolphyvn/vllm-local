@@ -324,37 +324,45 @@ Summary: {analysis_data.get('summary', 'No summary available')}
             # Calculate timestamp threshold
             threshold_time = (datetime.now() - timedelta(hours=hours)).isoformat()
 
-            # Build where clause
+            # Build where clause (avoid complex operators for ChromaDB compatibility)
             where_clause = {
                 "symbol": symbol,
-                "analysis_type": "live",
-                "timestamp": {"$gte": threshold_time}
+                "analysis_type": "live"
             }
 
             if timeframe:
                 where_clause["timeframe"] = timeframe
 
-            # Query for recent analyses
+            # Query for recent analyses (get more results to filter by timestamp)
+            query_limit = limit * 2  # Get more to allow for timestamp filtering
             results = self.collection.query(
                 query_texts=[f"Recent analyses for {symbol}"],
                 where=where_clause,
-                n_results=limit
+                n_results=query_limit
             )
 
             if not results['ids'][0]:
                 return []
 
-            # Format results
+            # Format results and filter by timestamp
             analyses = []
             for i in range(len(results['ids'][0])):
-                analyses.append({
-                    "document_id": results['ids'][0][i],
-                    "document": results['documents'][0][i],
-                    "metadata": results['metadatas'][0][i]
-                })
+                metadata = results['metadatas'][0][i]
+                timestamp = metadata.get('timestamp', '')
+
+                # Filter by timestamp threshold
+                if timestamp >= threshold_time:
+                    analyses.append({
+                        "document_id": results['ids'][0][i],
+                        "document": results['documents'][0][i],
+                        "metadata": metadata
+                    })
 
             # Sort by timestamp (most recent first)
             analyses.sort(key=lambda x: x['metadata']['timestamp'], reverse=True)
+
+            # Limit results to requested count
+            analyses = analyses[:limit]
 
             self.logger.info(f"📄 Found {len(analyses)} recent analyses for {symbol}")
             return analyses
