@@ -877,7 +877,12 @@ class OllamaClient:
         # Convert messages to Ollama format
         ollama_messages = []
         for msg in messages:
-            role = "user" if msg["role"] == "user" else "assistant"
+            if msg["role"] == "user":
+                role = "user"
+            elif msg["role"] == "system":
+                role = "system"
+            else:
+                role = "assistant"
             ollama_messages.append({
                 "role": role,
                 "content": msg["content"]
@@ -923,7 +928,12 @@ class OllamaClient:
         # Convert messages to Ollama format
         ollama_messages = []
         for msg in messages:
-            role = "user" if msg["role"] == "user" else "assistant"
+            if msg["role"] == "user":
+                role = "user"
+            elif msg["role"] == "system":
+                role = "system"
+            else:
+                role = "assistant"
             ollama_messages.append({
                 "role": role,
                 "content": msg["content"]
