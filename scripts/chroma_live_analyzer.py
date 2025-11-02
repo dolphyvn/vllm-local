@@ -267,39 +267,43 @@ Summary: {analysis_data.get('summary', 'No summary available')}
         try:
             self._ensure_initialized()
 
-            # Query for latest analysis
-            where_clause = {
-                "symbol": symbol,
-                "timeframe": timeframe,
-                "analysis_type": "live"
-            }
-
-            # Only add confidence filter if min_confidence > 0
-            if min_confidence > 0:
-                where_clause["confidence"] = {"$gte": min_confidence}
-
+            # Query for latest analysis (get multiple results to filter)
+            # ChromaDB doesn't support multiple conditions in where clause
             results = self.collection.query(
                 query_texts=[f"Latest analysis for {symbol} {timeframe}"],
-                where=where_clause,
-                n_results=1
+                n_results=10  # Get more results to allow for filtering
             )
 
             if not results['ids'][0]:
                 self.logger.info(f"📭 No analysis found for {symbol} {timeframe}")
                 return None
 
-            # Get the result
-            doc_id = results['ids'][0][0]
-            document = results['documents'][0][0]
-            metadata = results['metadatas'][0][0]
+            # Filter results to find matching analysis
+            matching_analysis = None
+            for i in range(len(results['ids'][0])):
+                metadata = results['metadatas'][0][i]
 
-            self.logger.info(f"📄 Found analysis for {symbol} {timeframe}: {metadata['confidence']}% confidence")
+                # Check if this analysis matches our criteria
+                if (metadata.get('symbol') == symbol and
+                    metadata.get('timeframe') == timeframe and
+                    metadata.get('analysis_type') == 'live'):
 
-            return {
-                "document_id": doc_id,
-                "document": document,
-                "metadata": metadata
-            }
+                    # Check confidence threshold if specified
+                    confidence = metadata.get('confidence', 0)
+                    if confidence >= min_confidence:
+                        matching_analysis = {
+                            "document_id": results['ids'][0][i],
+                            "document": results['documents'][0][i],
+                            "metadata": metadata
+                        }
+                        break
+
+            if not matching_analysis:
+                self.logger.info(f"📭 No matching analysis found for {symbol} {timeframe} with confidence ≥{min_confidence}%")
+                return None
+
+            self.logger.info(f"📄 Found analysis for {symbol} {timeframe}: {matching_analysis['metadata']['confidence']}% confidence")
+            return matching_analysis
 
         except Exception as e:
             self.logger.error(f"❌ Failed to get latest analysis: {e}")
@@ -324,34 +328,29 @@ Summary: {analysis_data.get('summary', 'No summary available')}
             # Calculate timestamp threshold
             threshold_time = (datetime.now() - timedelta(hours=hours)).isoformat()
 
-            # Build where clause (avoid complex operators for ChromaDB compatibility)
-            where_clause = {
-                "symbol": symbol,
-                "analysis_type": "live"
-            }
-
-            if timeframe:
-                where_clause["timeframe"] = timeframe
-
-            # Query for recent analyses (get more results to filter by timestamp)
-            query_limit = limit * 2  # Get more to allow for timestamp filtering
+            # Query for recent analyses (get more results to filter by all criteria)
+            # ChromaDB doesn't support multiple conditions in where clause
+            query_limit = max(limit * 5, 50)  # Get more results to allow for filtering
             results = self.collection.query(
                 query_texts=[f"Recent analyses for {symbol}"],
-                where=where_clause,
                 n_results=query_limit
             )
 
             if not results['ids'][0]:
                 return []
 
-            # Format results and filter by timestamp
+            # Format results and filter by all criteria
             analyses = []
             for i in range(len(results['ids'][0])):
                 metadata = results['metadatas'][0][i]
                 timestamp = metadata.get('timestamp', '')
 
-                # Filter by timestamp threshold
-                if timestamp >= threshold_time:
+                # Filter by symbol, analysis type, timeframe, and timestamp
+                if (metadata.get('symbol') == symbol and
+                    metadata.get('analysis_type') == 'live' and
+                    (not timeframe or metadata.get('timeframe') == timeframe) and
+                    timestamp >= threshold_time):
+
                     analyses.append({
                         "document_id": results['ids'][0][i],
                         "document": results['documents'][0][i],
@@ -386,23 +385,12 @@ Summary: {analysis_data.get('summary', 'No summary available')}
         try:
             self._ensure_initialized()
 
-            # Build base where clause
-            where_clause = {
-                "analysis_type": "live",
-                "trade_direction": {"$ne": "HOLD"}
-            }
-
-            if symbol:
-                where_clause["symbol"] = symbol
-
-            # Note: ChromaDB doesn't support mixed operators in single query well
-            # We'll filter by confidence after getting results
-
-            # Query for high confidence setups
+            # Query for high confidence setups (get more results to filter)
+            # ChromaDB doesn't support multiple conditions in where clause
+            query_limit = limit * 10  # Get more results to allow for filtering
             results = self.collection.query(
                 query_texts=["High confidence trade setups"],
-                where=where_clause,
-                n_results=limit
+                n_results=query_limit
             )
 
             if not results['ids'][0]:
@@ -414,8 +402,12 @@ Summary: {analysis_data.get('summary', 'No summary available')}
                 metadata = results['metadatas'][0][i]
                 confidence = metadata.get('confidence', 0)
 
-                # Only include results meeting confidence threshold
-                if confidence >= min_confidence:
+                # Filter by analysis_type, trade_direction, symbol, and confidence
+                if (metadata.get('analysis_type') == 'live' and
+                    metadata.get('trade_direction') != 'HOLD' and
+                    (not symbol or metadata.get('symbol') == symbol) and
+                    confidence >= min_confidence):
+
                     setups.append({
                         "document_id": results['ids'][0][i],
                         "document": results['documents'][0][i],
